@@ -45,14 +45,14 @@ const PrinterMap = dynamic(() => import("./PrinterMap"), {
 // ─── Status display config ───────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<PrinterStatus, string> = {
-  working: "text-[#57068C]",
+  working: "text-green-600 dark:text-green-400",
   not_working: "text-red-500",
   unknown: "text-amber-500",
 };
 
 const STATUS_BG: Record<PrinterStatus, string> = {
   working:
-    "bg-purple-50 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900",
+    "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900",
   not_working:
     "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900",
   unknown:

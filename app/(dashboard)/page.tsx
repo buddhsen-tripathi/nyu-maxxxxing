@@ -18,6 +18,8 @@ import {
   X,
   FileText,
   ImageIcon,
+  CalendarCheck,
+  ExternalLink,
 } from "lucide-react";
 import { useChatReset, useUserContext } from "./chat-context";
 import { uploadChatImageAction } from "./chat-actions";
@@ -260,11 +262,37 @@ function ChatInner() {
               return [];
             });
 
-            // Skip empty assistant messages (no text + no nav buttons)
+            const bookButtons = msg.parts.flatMap((p) => {
+              if (
+                p.type === "tool-bookRoom" &&
+                p.state === "output-available" &&
+                p.output &&
+                typeof p.output === "object"
+              ) {
+                const out = p.output as {
+                  found: number;
+                  bookingUrl?: string;
+                  label?: string;
+                };
+                if (out.found === 1 && out.bookingUrl) {
+                  return [
+                    {
+                      id: p.toolCallId,
+                      bookingUrl: out.bookingUrl,
+                      label: out.label ?? "Book this room",
+                    },
+                  ];
+                }
+              }
+              return [];
+            });
+
+            // Skip empty assistant messages (no text + no nav/book buttons)
             if (
               msg.role === "assistant" &&
               !textContent.trim() &&
               navButtons.length === 0 &&
+              bookButtons.length === 0 &&
               attachmentParts.length === 0
             ) {
               return null;
@@ -323,8 +351,21 @@ function ChatInner() {
                     </div>
                   )}
 
-                  {navButtons.length > 0 && (
+                  {(navButtons.length > 0 || bookButtons.length > 0) && (
                     <div className="mt-2 flex flex-wrap gap-2">
+                      {bookButtons.map((btn) => (
+                        <a
+                          key={btn.id}
+                          href={btn.bookingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full border border-primary bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                        >
+                          <CalendarCheck className="h-3.5 w-3.5" />
+                          <span>{btn.label}</span>
+                          <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+                        </a>
+                      ))}
                       {navButtons.map((btn) => {
                         const Icon = TAB_ICONS[btn.tab] ?? ArrowRight;
                         return (

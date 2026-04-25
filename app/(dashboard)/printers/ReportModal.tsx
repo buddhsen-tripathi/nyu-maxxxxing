@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, CheckCircle2, XCircle } from "lucide-react";
+import { X } from "lucide-react";
 import type { Printer, PrinterStatus, StatusReport } from "./types";
 
 interface Props {
@@ -52,26 +52,24 @@ export default function ReportModal({ printer, onSubmit, onClose }: Props) {
               <button
                 type="button"
                 onClick={() => setSelected("working")}
-                className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-sm font-medium transition-all ${
+                className={`flex items-center justify-center rounded-lg border-2 p-3 text-sm font-medium transition-all ${
                   selected === "working"
                     ? "border-green-500 bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
                     : "border-border bg-card text-card-foreground hover:border-green-300 hover:bg-green-50/50"
                 }`}
               >
-                <CheckCircle2 className="h-6 w-6 text-green-500" />
-                Working ✅
+                Working
               </button>
               <button
                 type="button"
                 onClick={() => setSelected("not_working")}
-                className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-sm font-medium transition-all ${
+                className={`flex items-center justify-center rounded-lg border-2 p-3 text-sm font-medium transition-all ${
                   selected === "not_working"
                     ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400"
                     : "border-border bg-card text-card-foreground hover:border-red-300 hover:bg-red-50/50"
                 }`}
               >
-                <XCircle className="h-6 w-6 text-red-500" />
-                Not Working ❌
+                Not Working
               </button>
             </div>
           </div>

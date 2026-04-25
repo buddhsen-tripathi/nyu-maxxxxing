@@ -607,6 +607,48 @@ export const agentTools = {
     },
   }),
 
+  bookRoom: tool({
+    description:
+      "Surface a 'Book Room' button when the user wants to book a specific study space. Pass either spaceId (preferred — get from searchSpaces) or spaceName. Returns the external booking URL (NYU LibCal / EMS) which the UI renders as a clickable button. If the space doesn't support booking, returns found:0 — tell the user that space isn't bookable and suggest a bookable alternative.",
+    inputSchema: z.object({
+      spaceId: z
+        .string()
+        .optional()
+        .describe("The space id from searchSpaces (e.g. 'bobst-pods', 'dibner-3'). Preferred."),
+      spaceName: z
+        .string()
+        .optional()
+        .describe("Fallback: case-insensitive substring of the space name."),
+    }),
+    execute: async ({ spaceId, spaceName }) => {
+      const space =
+        (spaceId && initialSpaces.find((s) => s.id === spaceId)) ||
+        (spaceName && initialSpaces.find((s) => ciIncludes(s.name, spaceName))) ||
+        null;
+
+      if (!space) {
+        return { found: 0, message: "Couldn't find that space. Try searchSpaces first." };
+      }
+
+      if (!space.bookingUrl) {
+        return {
+          found: 0,
+          spaceName: space.name,
+          message: `${space.name} isn't bookable — it's first-come, first-served. Try Bobst Study Pods or Dibner group rooms if you need a reservable space.`,
+        };
+      }
+
+      return {
+        found: 1,
+        name: space.name,
+        building: space.building,
+        floor: space.floor,
+        bookingUrl: space.bookingUrl,
+        label: `Book ${space.name}`,
+      };
+    },
+  }),
+
   sharePrintCredits: tool({
     description:
       "Send NYU print credits to another student via email. Use only when the user explicitly asks to share or send credits and provides the recipient email and number of pages. If the user attached a file (PDF/image) and wants the recipient to print it, pass attachmentUrl using the URL from the [ATTACHED_IMAGE_URLS] marker in their message. Confirm details before calling.",
