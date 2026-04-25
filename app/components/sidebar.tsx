@@ -10,6 +10,7 @@ import {
   Printer,
   PanelLeft,
   SquarePen,
+  Handshake,
 } from "lucide-react";
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { label: "Spaces", href: "/spaces", icon: MapPin },
   { label: "Exchange", href: "/exchange", icon: ArrowLeftRight },
   { label: "Mentoring", href: "/mentoring", icon: Users },
+  { label: "Partner", href: "/partner", icon: Handshake },
   { label: "Printers", href: "/printers", icon: Printer },
 ];
 

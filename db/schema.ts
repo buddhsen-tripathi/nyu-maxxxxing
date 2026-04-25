@@ -76,3 +76,17 @@ export const printerReports = pgTable("printer_reports", {
   comment: text("comment"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// ── Partner Listings ──
+export const partners = pgTable("partners", {
+  id: serial("id").primaryKey(),
+  activity: text("activity").notNull(), // "Gym", "Study", "Sports", etc.
+  seeking: text("seeking").notNull(), // "partner" | "group"
+  description: text("description").notNull(),
+  time: text("time").notNull(), // "Weekdays 6-8 PM", "Saturdays 10 AM", etc.
+  location: text("location").notNull(), // "NYU Gym", "Washington Square Park", etc.
+  name: text("name").notNull(),
+  contact: text("contact").notNull(), // email or phone
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
