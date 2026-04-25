@@ -12,6 +12,7 @@ import {
   SquarePen,
   Handshake,
   StickyNote,
+  BedDouble,
 } from "lucide-react";
 import { useChatReset } from "../(dashboard)/chat-context";
 
@@ -19,6 +20,7 @@ const navItems = [
   { label: "Chat", href: "/", icon: MessageCircle },
   { label: "Spaces", href: "/spaces", icon: MapPin },
   { label: "Exchange", href: "/exchange", icon: ArrowLeftRight },
+  { label: "Sublets", href: "/sublets", icon: BedDouble },
   { label: "Mentoring", href: "/mentoring", icon: Users },
   { label: "Partner", href: "/partner", icon: Handshake },
   { label: "Printers", href: "/printers", icon: Printer },

@@ -1,120 +1,37 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Dumbbell, BookOpen, Users, Plus, Heart, Mountain, ChefHat, X } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Dumbbell,
+  BookOpen,
+  Users,
+  Plus,
+  Heart,
+  Mountain,
+  ChefHat,
+  X,
+} from "lucide-react";
 
-const partnerListings = [
-  {
-    activity: "Gym Partner",
-    seeking: "partner",
-    description: "Looking for a gym buddy to hit the weights and cardio sessions 3-4 times a week. Preferably mornings or evenings.",
-    time: "Weekdays 7-9 AM or 5-7 PM",
-    location: "NYU Palladium Fitness Center",
-    name: "Alex M.",
-    contact: "alex.m@nyu.edu",
-    posted: "1 hour ago",
-    maxParticipants: 2,
-    currentParticipants: 1,
-    participants: ["Alex M."],
-  },
-  {
-    activity: "Study Group",
-    seeking: "group",
-    description: "Forming a study group for CS algorithms course. Looking for 3-4 more people to meet twice a week.",
-    time: "Tuesdays & Thursdays 3-5 PM",
-    location: "Bobst Library Study Rooms",
-    name: "Jordan K.",
-    contact: "jordan.k@nyu.edu",
-    posted: "3 hours ago",
-    maxParticipants: 5,
-    currentParticipants: 4,
-    participants: ["Jordan K.", "Sarah L.", "Mike Chen", "Priya Patel"],
-  },
-  {
-    activity: "Basketball",
-    seeking: "group",
-    description: "Looking for players to join casual pickup games at the gym. All skill levels welcome! Need 4-6 more players.",
-    time: "Weekends 2-4 PM",
-    location: "NYU Coles Sports Center",
-    name: "Sam R.",
-    contact: "sam.r@nyu.edu",
-    posted: "5 hours ago",
-    maxParticipants: 8,
-    currentParticipants: 6,
-    participants: ["Sam R.", "Mike T.", "Lisa P.", "David Kim", "Rachel Wong", "James Liu"],
-  },
-  {
-    activity: "Running Partner",
-    seeking: "partner",
-    description: "Seeking a running buddy for morning runs around Washington Square Park. 5-6 miles pace.",
-    time: "Weekdays 6-7 AM",
-    location: "Washington Square Park",
-    name: "Priya D.",
-    contact: "priya.d@nyu.edu",
-    posted: "1 day ago",
-    maxParticipants: 2,
-    currentParticipants: 1,
-    participants: ["Priya D."],
-  },
-  {
-    activity: "Language Exchange",
-    seeking: "group",
-    description: "Want to practice Spanish conversation. Forming a small group of 4-5 people for weekly meetups.",
-    time: "Fridays 4-6 PM",
-    location: "Kimmel Center Student Lounge",
-    name: "Carlos L.",
-    contact: "carlos.l@nyu.edu",
-    posted: "2 days ago",
-    maxParticipants: 6,
-    currentParticipants: 5,
-    participants: ["Carlos L.", "Maria G.", "Antonio M.", "Isabella T."],
-  },
-  {
-    activity: "Yoga Sessions",
-    seeking: "group",
-    description: "Looking for people interested in group yoga sessions. Beginner-friendly, focus on mindfulness. Seeking 5-8 participants.",
-    time: "Saturdays 9-10:30 AM",
-    location: "Washington Square Park",
-    name: "Maya T.",
-    contact: "maya.t@nyu.edu",
-    posted: "4 hours ago",
-    maxParticipants: 10,
-    currentParticipants: 7,
-    participants: ["Maya T.", "John D.", "Anna K.", "Robert S.", "Lisa Chen", "Michael Brown", "Emma Davis"],
-  },
-  {
-    activity: "Hiking Group",
-    seeking: "group",
-    description: "Planning weekend hikes in nearby areas. Looking for adventurous people to join our group of 6.",
-    time: "Saturdays 8 AM - 2 PM",
-    location: "Bear Mountain State Park",
-    name: "David W.",
-    contact: "david.w@nyu.edu",
-    posted: "6 hours ago",
-    maxParticipants: 8,
-    currentParticipants: 5,
-    participants: ["David W.", "Emma R.", "Chris M.", "Sarah Johnson", "Tom Wilson"],
-  },
-  {
-    activity: "Cooking Club",
-    seeking: "partner",
-    description: "Looking for someone to cook meals with and try new recipes. Great for sharing costs and having fun in the kitchen.",
-    time: "Evenings 7-9 PM",
-    location: "Shared Kitchen in Residence Hall",
-    name: "Emma S.",
-    contact: "emma.s@nyu.edu",
-    posted: "8 hours ago",
-    maxParticipants: 2,
-    currentParticipants: 1,
-    participants: ["Emma S."],
-  },
-];
+type Listing = {
+  id: number;
+  activity: string;
+  seeking: "partner" | "group";
+  description: string;
+  time: string;
+  location: string;
+  name: string;
+  contact: string;
+  maxParticipants: number;
+  participants: string[];
+  currentParticipants: number;
+  createdAt: string;
+};
 
 const activityIcons: Record<string, typeof Dumbbell> = {
   "Gym Partner": Dumbbell,
   "Study Partner": BookOpen,
   "Study Group": BookOpen,
-  "Basketball": Users,
+  Basketball: Users,
   "Running Partner": Users,
   "Language Exchange": Users,
   "Yoga Sessions": Heart,
@@ -122,195 +39,201 @@ const activityIcons: Record<string, typeof Dumbbell> = {
   "Cooking Club": ChefHat,
 };
 
+function formatPosted(iso: string): string {
+  const created = new Date(iso);
+  if (Number.isNaN(created.getTime())) return "Recently";
+  const minutes = Math.max(0, Math.floor((Date.now() - created.getTime()) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)} hours ago`;
+  return `${Math.floor(minutes / 1440)} days ago`;
+}
+
 export default function PartnerPage() {
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   const [activeFilter, setActiveFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
-  const [selectedListing, setSelectedListing] = useState<typeof partnerListings[0] | null>(null);
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
-  const [joinMode, setJoinMode] = useState<"join" | "leave" | null>(null);
+
+  const [joinMode, setJoinMode] = useState<"join" | null>(null);
   const [joinName, setJoinName] = useState("");
   const [joinError, setJoinError] = useState("");
+  const [joinSubmitting, setJoinSubmitting] = useState(false);
+
+  const [mounted, setMounted] = useState(false);
+  // Per-browser tracking of which listing ids the current user has joined,
+  // and what name they joined as. Stored only client-side — no auth model exists.
+  const [joinedMap, setJoinedMap] = useState<Record<number, string>>({});
+
   const [formData, setFormData] = useState({
     activity: "",
-    seeking: "partner",
+    seeking: "partner" as "partner" | "group",
     description: "",
     time: "",
     location: "",
     name: "",
     contact: "",
-    maxParticipants: 1,
+    maxParticipants: 2,
   });
-  const [mounted, setMounted] = useState(false);
-  
-  // Load listings from localStorage on component mount
-  const [listings, setListings] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('partnerListings');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          // Validate that it's an array and has the expected structure
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to load partner listings from localStorage:', error);
-        // Clear corrupted data
-        localStorage.removeItem('partnerListings');
-      }
-    }
-    return partnerListings;
-  });
+  const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // Load joined listings from localStorage
-  const [joinedListings, setJoinedListings] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('joinedListings');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          // Validate that it's an array
-          if (Array.isArray(parsed)) {
-            return parsed;
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to load joined listings from localStorage:', error);
-        // Clear corrupted data
-        localStorage.removeItem('joinedListings');
-      }
+  // ── Fetch listings from DB on mount ──────────────────────────────────────
+  const fetchListings = useCallback(async () => {
+    try {
+      setLoadError("");
+      const res = await fetch("/api/partners", { cache: "no-store" });
+      if (!res.ok) throw new Error("Unable to load partner listings.");
+      const payload = (await res.json()) as { listings: Listing[] };
+      setListings(payload.listings);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Unable to load listings.");
+    } finally {
+      setLoading(false);
     }
-    return [];
-  });
-
-  // Save listings to localStorage whenever they change
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('partnerListings', JSON.stringify(listings));
-      } catch (error) {
-        console.warn('Failed to save partner listings to localStorage:', error);
-      }
-    }
-  }, [listings]);
-
-  // Save joined listings to localStorage whenever they change
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('joinedListings', JSON.stringify(joinedListings));
-      } catch (error) {
-        console.warn('Failed to save joined listings to localStorage:', error);
-      }
-    }
-  }, [joinedListings]);
-
-  // Set mounted to true after hydration
-  useEffect(() => {
-    setMounted(true);
   }, []);
 
-  const getFilteredListings = () => {
+  useEffect(() => {
+    void fetchListings();
+  }, [fetchListings]);
+
+  // Hydrate joinedMap from localStorage
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const raw = localStorage.getItem("partnerJoinedMap");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") setJoinedMap(parsed);
+      }
+    } catch {
+      // ignore corrupt data
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      localStorage.setItem("partnerJoinedMap", JSON.stringify(joinedMap));
+    } catch {
+      // quota / disabled — ignore
+    }
+  }, [joinedMap, mounted]);
+
+  // ── Filtering ───────────────────────────────────────────────────────────
+  const getFiltered = () => {
     if (activeFilter === "All") return listings;
-
-    if (activeFilter === "Partner") {
-      return listings.filter(item => item.seeking === "partner");
-    }
-
-    if (activeFilter === "Group") {
-      return listings.filter(item => item.seeking === "group");
-    }
-
-    if (activeFilter === "Gym") {
-      return listings.filter(item => item.activity.toLowerCase().includes("gym"));
-    }
-
-    if (activeFilter === "Study") {
-      return listings.filter(item => item.activity.toLowerCase().includes("study"));
-    }
-
+    if (activeFilter === "Partner") return listings.filter((i) => i.seeking === "partner");
+    if (activeFilter === "Group") return listings.filter((i) => i.seeking === "group");
+    if (activeFilter === "Gym") return listings.filter((i) => i.activity.toLowerCase().includes("gym"));
+    if (activeFilter === "Study") return listings.filter((i) => i.activity.toLowerCase().includes("study"));
     if (activeFilter === "Sports") {
-      return listings.filter(item =>
-        item.activity.toLowerCase().includes("basketball") ||
-        item.activity.toLowerCase().includes("running") ||
-        item.activity.toLowerCase().includes("hiking")
-      );
+      return listings.filter((i) => {
+        const a = i.activity.toLowerCase();
+        return (
+          a.includes("basketball") ||
+          a.includes("running") ||
+          a.includes("hiking") ||
+          a.includes("soccer") ||
+          a.includes("climbing") ||
+          a.includes("cycling")
+        );
+      });
     }
-
     if (activeFilter === "Clubs") {
-      return listings.filter(item =>
-        item.activity.toLowerCase().includes("club") ||
-        item.activity.toLowerCase().includes("exchange") ||
-        item.activity.toLowerCase().includes("sessions") ||
-        item.activity === "Other"
-      );
+      return listings.filter((i) => {
+        const a = i.activity.toLowerCase();
+        return a.includes("club") || a.includes("exchange") || a.includes("sessions");
+      });
     }
-
     if (activeFilter === "Other") {
-      return listings.filter(item =>
-        item.activity === "Other" ||
-        (!item.activity.toLowerCase().includes("gym") &&
-         !item.activity.toLowerCase().includes("study") &&
-         !item.activity.toLowerCase().includes("basketball") &&
-         !item.activity.toLowerCase().includes("running") &&
-         !item.activity.toLowerCase().includes("hiking") &&
-         !item.activity.toLowerCase().includes("yoga") &&
-         !item.activity.toLowerCase().includes("language") &&
-         !item.activity.toLowerCase().includes("cooking") &&
-         !item.activity.toLowerCase().includes("club") &&
-         !item.activity.toLowerCase().includes("exchange") &&
-         !item.activity.toLowerCase().includes("sessions"))
-      );
+      return listings.filter((i) => {
+        const a = i.activity.toLowerCase();
+        return !(
+          a.includes("gym") ||
+          a.includes("study") ||
+          a.includes("basketball") ||
+          a.includes("running") ||
+          a.includes("hiking") ||
+          a.includes("yoga") ||
+          a.includes("language") ||
+          a.includes("cooking") ||
+          a.includes("club") ||
+          a.includes("exchange") ||
+          a.includes("sessions") ||
+          a.includes("soccer") ||
+          a.includes("climbing") ||
+          a.includes("cycling")
+        );
+      });
     }
-
     return listings;
   };
+  const filtered = getFiltered();
 
-  const filteredListings = getFilteredListings();
-  
-  // Ensure filteredListings is always an array
-  const safeFilteredListings = Array.isArray(filteredListings) ? filteredListings : [];
-
-  const handleSubmit = (e: { preventDefault(): void }) => {
-    e.preventDefault();
-    const maxParticipants = formData.seeking === "partner" ? 2 : Math.max(2, Number(formData.maxParticipants));
-    const newListing = {
-      ...formData,
-      posted: "Just now",
-      currentParticipants: 1, // Creator counts as first participant
-      maxParticipants,
-      participants: [formData.name], // Start with creator
-    };
-    setListings([newListing, ...listings]);
-    setFormData({
-      activity: "",
-      seeking: "partner",
-      description: "",
-      time: "",
-      location: "",
-      name: "",
-      contact: "",
-      maxParticipants: 1, // Will be set appropriately when seeking changes
-    });
-    setShowForm(false);
-  };
-
+  // ── Form helpers ────────────────────────────────────────────────────────
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => {
-      const newData = { ...prev, [field]: value };
-      // When switching to group, set default group size to 2
-      if (field === "seeking" && value === "group" && prev.maxParticipants < 2) {
-        newData.maxParticipants = 2;
+    setFormData((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === "seeking") {
+        if (value === "group" && prev.maxParticipants < 2) next.maxParticipants = 4;
+        if (value === "partner") next.maxParticipants = 2;
       }
-      // When switching to partner, reset maxParticipants
-      if (field === "seeking" && value === "partner") {
-        newData.maxParticipants = 1; // Will be set to 2 in handleSubmit
+      if (field === "maxParticipants") {
+        next.maxParticipants = Number(value) || 2;
       }
-      return newData;
+      return next;
     });
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/partners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activity: formData.activity,
+          seeking: formData.seeking,
+          description: formData.description,
+          time: formData.time,
+          location: formData.location,
+          name: formData.name,
+          contact: formData.contact,
+          maxParticipants:
+            formData.seeking === "partner" ? 2 : Math.max(2, Number(formData.maxParticipants)),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Could not post listing.");
+      }
+      await fetchListings();
+      setFormData({
+        activity: "",
+        seeking: "partner",
+        description: "",
+        time: "",
+        location: "",
+        name: "",
+        contact: "",
+        maxParticipants: 2,
+      });
+      setShowForm(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not post listing.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── Modal helpers ───────────────────────────────────────────────────────
   const closeModal = () => {
     setSelectedListing(null);
     setJoinMode(null);
@@ -318,45 +241,84 @@ export default function PartnerPage() {
     setJoinError("");
   };
 
-  const handleJoinConfirm = () => {
-    if (!selectedListing || !joinName.trim()) return;
-    const name = joinName.trim();
-
-    // Store the joined name inside the entry so leave doesn't need to ask again
-    setJoinedListings([...joinedListings, { ...selectedListing, _joinedAs: name }]);
-    const updatedListings = listings.map(listing =>
-      listing.name === selectedListing.name && listing.posted === selectedListing.posted
-        ? { ...listing, currentParticipants: (Number(listing.currentParticipants) || 1) + 1, participants: [...(listing.participants || []), name] }
-        : listing
-    );
-    setListings(updatedListings);
-    const updated = updatedListings.find(l => l.name === selectedListing.name && l.posted === selectedListing.posted);
-    if (updated) setSelectedListing(updated);
-    setJoinMode(null);
-    setJoinName("");
-    setJoinError("");
-  };
-
-  const handleLeave = () => {
+  const handleJoinConfirm = async () => {
     if (!selectedListing) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const joinedEntry = joinedListings.find((j: any) => j.name === selectedListing.name && j.posted === selectedListing.posted);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const joinedAs: string | undefined = (joinedEntry as any)?._joinedAs;
-    setJoinedListings(joinedListings.filter((j: { name: string; posted: string }) =>
-      !(j.name === selectedListing.name && j.posted === selectedListing.posted)
-    ));
-    if (joinedAs) {
-      const updatedListings = listings.map(listing =>
-        listing.name === selectedListing.name && listing.posted === selectedListing.posted
-          ? { ...listing, currentParticipants: Math.max(1, (Number(listing.currentParticipants) || 1) - 1), participants: (listing.participants || []).filter((p: string) => p !== joinedAs) }
-          : listing
-      );
-      setListings(updatedListings);
+    const name = joinName.trim();
+    if (!name) {
+      setJoinError("Please enter your name.");
+      return;
     }
-    closeModal();
+
+    setJoinError("");
+    setJoinSubmitting(true);
+    try {
+      const res = await fetch(`/api/partners/${selectedListing.id}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ joinerName: name }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Could not join listing.");
+      }
+      const updated = (await res.json()) as {
+        participants: string[];
+        currentParticipants: number;
+        maxParticipants: number;
+      };
+
+      // Patch listings + selectedListing in place
+      setListings((curr) =>
+        curr.map((l) => (l.id === selectedListing.id ? { ...l, ...updated } : l)),
+      );
+      setSelectedListing((curr) => (curr ? { ...curr, ...updated } : curr));
+      setJoinedMap((m) => ({ ...m, [selectedListing.id]: name }));
+      setJoinMode(null);
+      setJoinName("");
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : "Could not join listing.");
+    } finally {
+      setJoinSubmitting(false);
+    }
   };
 
+  const handleLeave = async () => {
+    if (!selectedListing) return;
+    const joinedAs = joinedMap[selectedListing.id];
+    if (!joinedAs) return;
+
+    try {
+      const res = await fetch(`/api/partners/${selectedListing.id}/leave`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ joinerName: joinedAs }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Could not leave listing.");
+      }
+      const updated = (await res.json()) as {
+        participants: string[];
+        currentParticipants: number;
+        maxParticipants: number;
+      };
+
+      setListings((curr) =>
+        curr.map((l) => (l.id === selectedListing.id ? { ...l, ...updated } : l)),
+      );
+      setJoinedMap((m) => {
+        const next = { ...m };
+        delete next[selectedListing.id];
+        return next;
+      });
+      closeModal();
+    } catch {
+      // surface as join error so the existing form area shows it
+      setJoinError("Could not leave the listing.");
+    }
+  };
+
+  // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div className="p-6">
       <div className="mb-6 flex items-start justify-between">
@@ -366,8 +328,11 @@ export default function PartnerPage() {
             Connect with fellow students for activities around campus. Find gym buddies, study partners, or join group activities.
           </p>
         </div>
-        <button 
-          onClick={() => setShowForm(true)}
+        <button
+          onClick={() => {
+            setFormError("");
+            setShowForm(true);
+          }}
           className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
@@ -377,102 +342,102 @@ export default function PartnerPage() {
 
       {/* Activity filters */}
       <div className="mb-6 flex flex-wrap gap-2">
-        {["All", "Partner", "Group", "Gym", "Study", "Sports", "Clubs", "Other"].map(
-          (filter) => (
-            <button
-              key={filter}
-              onClick={() => setActiveFilter(filter)}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                filter === activeFilter
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-card-foreground hover:bg-accent"
-              }`}
-            >
-              {filter}
-            </button>
-          )
-        )}
+        {["All", "Partner", "Group", "Gym", "Study", "Sports", "Clubs", "Other"].map((filter) => (
+          <button
+            key={filter}
+            onClick={() => setActiveFilter(filter)}
+            className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+              filter === activeFilter
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-card-foreground hover:bg-accent"
+            }`}
+          >
+            {filter}
+          </button>
+        ))}
       </div>
 
-      {/* Listings grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {safeFilteredListings.map((item) => {
-          // Validate item data
-          if (!item || typeof item !== 'object') return null;
-          if (!item.name || !item.activity) return null;
-          
-          const Icon = activityIcons[item.activity] ?? Users;
-          const maxParticipants = Number(item.maxParticipants) || 1;
-          const currentParticipants = Number(item.currentParticipants) || 1;
-          const slotsLeft = Math.max(0, maxParticipants - currentParticipants);
-          const hasJoined = joinedListings.some(joined => joined && joined.name === item.name && joined.posted === item.posted);
-          
-          return (
-            <div
-              key={`${item.name}-${item.posted}-${item.activity}`}
-              className="flex flex-col rounded-lg border border-border bg-card p-5 transition-all hover:shadow-md cursor-pointer hover:border-primary/50"
-              onClick={() => setSelectedListing(item)}
-            >
-              {/* Icon */}
-              <div className="mb-4 flex h-16 items-center justify-center rounded-md bg-secondary/50">
-                <Icon className="h-8 w-8 text-muted-foreground/50" />
-              </div>
+      {loadError ? (
+        <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+          {loadError}
+        </div>
+      ) : null}
 
-              <div className="flex-1">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {item.activity}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {mounted ? (
-                      hasJoined ? (
-                        <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                          You joined
-                        </span>
-                      ) : slotsLeft === 0 ? (
-                        <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                          Full
-                        </span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
-                          {slotsLeft} slot{slotsLeft !== 1 ? 's' : ''} left
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                        Loading...
+      {loading ? (
+        <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+          Loading listings...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          No listings match this filter.
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((item) => {
+            const Icon = activityIcons[item.activity] ?? Users;
+            const slotsLeft = Math.max(0, item.maxParticipants - item.currentParticipants);
+            const hasJoined = !!joinedMap[item.id];
+
+            return (
+              <div
+                key={item.id}
+                className="flex flex-col rounded-lg border border-border bg-card p-5 transition-all hover:shadow-md cursor-pointer hover:border-primary/50"
+                onClick={() => setSelectedListing(item)}
+              >
+                <div className="mb-4 flex h-16 items-center justify-center rounded-md bg-secondary/50">
+                  <Icon className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+
+                <div className="flex-1">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{item.activity}</span>
+                    <div className="flex items-center gap-2">
+                      {mounted ? (
+                        hasJoined ? (
+                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                            You joined
+                          </span>
+                        ) : slotsLeft === 0 ? (
+                          <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                            Full
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-1 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                            {slotsLeft} slot{slotsLeft !== 1 ? "s" : ""} left
+                          </span>
+                        )
+                      ) : null}
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          item.seeking === "partner"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                            : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                        }`}
+                      >
+                        {item.seeking === "partner" ? "Partner" : "Group"}
                       </span>
-                    )}
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      item.seeking === "partner"
-                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                        : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                    }`}>
-                      {item.seeking === "partner" ? "Partner" : "Group"}
-                    </span>
+                    </div>
                   </div>
-                </div>
-                <h3 className="mb-2 font-medium leading-snug">{item.name}</h3>
-                <p className="mb-3 text-sm text-muted-foreground">
-                  {item.description}
-                </p>
-                <div className="mb-3 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-primary">🕒 {item.time}</span>
+                  <h3 className="mb-2 font-medium leading-snug">{item.name}</h3>
+                  <p className="mb-3 text-sm text-muted-foreground">{item.description}</p>
+                  <div className="mb-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-primary">🕒 {item.time}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-primary">📍 {item.location}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-primary">📍 {item.location}</span>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{item.contact}</span>
+                    <span>{formatPosted(item.createdAt)}</span>
                   </div>
-                </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{item.contact}</span>
-                  <span>{item.posted}</span>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Partner Up Modal */}
       {selectedListing && (
@@ -480,10 +445,7 @@ export default function PartnerPage() {
           <div className="w-full max-w-lg rounded-lg bg-card p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Partner Up</h2>
-              <button
-                onClick={closeModal}
-                className="rounded-full p-1 hover:bg-accent"
-              >
+              <button onClick={closeModal} className="rounded-full p-1 hover:bg-accent">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -491,53 +453,54 @@ export default function PartnerPage() {
             <div className="space-y-4">
               <div className="flex items-start gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-md bg-secondary/50">
-                  {activityIcons[selectedListing.activity] ? 
-                    React.createElement(activityIcons[selectedListing.activity], { className: "h-6 w-6 text-muted-foreground/50" }) : 
-                    <Users className="h-6 w-6 text-muted-foreground/50" />
-                  }
+                  {React.createElement(activityIcons[selectedListing.activity] ?? Users, {
+                    className: "h-6 w-6 text-muted-foreground/50",
+                  })}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-medium">{selectedListing.activity}</h3>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      selectedListing.seeking === "partner"
-                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                        : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                    }`}>
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full ${
+                        selectedListing.seeking === "partner"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                          : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                      }`}
+                    >
                       {selectedListing.seeking === "partner" ? "Partner" : "Group"}
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground mb-2">{selectedListing.description}</p>
-                  
-                  {/* Participants Section - Always show */}
+
                   <div className="mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-lg">👥</span>
                       <span className="font-semibold text-primary">Current Participants</span>
                       <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
-                        {(selectedListing.participants || []).length} joined
+                        {selectedListing.participants.length} joined
                       </span>
-                      {Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1)) === 0 && (
+                      {selectedListing.maxParticipants - selectedListing.currentParticipants <= 0 ? (
                         <span className="text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 px-2 py-1 rounded-full">
                           Full
                         </span>
-                      )}
-                      {Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1)) > 0 && (
+                      ) : (
                         <span className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 px-2 py-1 rounded-full">
-                          {Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1))} slot{Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1)) !== 1 ? 's' : ''} left
+                          {selectedListing.maxParticipants - selectedListing.currentParticipants} slot
+                          {selectedListing.maxParticipants - selectedListing.currentParticipants !== 1 ? "s" : ""} left
                         </span>
                       )}
                     </div>
                     <div className="text-sm leading-relaxed text-foreground">
-                      {(selectedListing.participants || []).length > 0 ? (
+                      {selectedListing.participants.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {(selectedListing.participants || []).map((participant: any, index: number) => (
+                          {selectedListing.participants.map((p, i) => (
                             <button
-                              key={index}
-                              onClick={() => setSelectedParticipant(participant)}
+                              key={`${p}-${i}`}
+                              onClick={() => setSelectedParticipant(p)}
                               className="text-primary hover:underline font-medium"
                             >
-                              {participant}
+                              {p}
+                              {i < selectedListing.participants.length - 1 ? "," : ""}
                             </button>
                           ))}
                         </div>
@@ -546,7 +509,7 @@ export default function PartnerPage() {
                       )}
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">👤</span>
@@ -561,7 +524,6 @@ export default function PartnerPage() {
               </div>
 
               <div className="pt-4 border-t space-y-3">
-                {/* Inline join name input */}
                 {joinMode && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Enter your name to join:</p>
@@ -570,24 +532,29 @@ export default function PartnerPage() {
                         autoFocus
                         type="text"
                         value={joinName}
-                        onChange={e => { setJoinName(e.target.value); setJoinError(""); }}
-                        onKeyDown={e => e.key === "Enter" && handleJoinConfirm()}
+                        onChange={(e) => {
+                          setJoinName(e.target.value);
+                          setJoinError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleJoinConfirm()}
                         className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                         placeholder="Your name"
                       />
                       <button
                         onClick={handleJoinConfirm}
-                        disabled={!joinName.trim()}
+                        disabled={!joinName.trim() || joinSubmitting}
                         className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                       >
-                        Confirm
+                        {joinSubmitting ? "..." : "Confirm"}
                       </button>
                     </div>
-                    {joinError && (
-                      <p className="text-xs text-red-500">{joinError}</p>
-                    )}
+                    {joinError && <p className="text-xs text-red-500">{joinError}</p>}
                     <button
-                      onClick={() => { setJoinMode(null); setJoinName(""); setJoinError(""); }}
+                      onClick={() => {
+                        setJoinMode(null);
+                        setJoinName("");
+                        setJoinError("");
+                      }}
                       className="text-xs text-muted-foreground hover:underline"
                     >
                       Cancel
@@ -595,18 +562,21 @@ export default function PartnerPage() {
                   </div>
                 )}
 
-                {/* Action buttons */}
-                {!joinMode && (
-                  mounted ? (
-                    joinedListings.some((j: { name: string; posted: string }) => j.name === selectedListing.name && j.posted === selectedListing.posted) ? (
+                {!joinMode &&
+                  (mounted ? (
+                    joinedMap[selectedListing.id] ? (
                       <div className="space-y-3">
                         <div className="rounded-md bg-green-600/10 border border-green-600/30 px-4 py-3 space-y-1">
                           <p className="text-green-600 font-semibold text-sm">✓ You&apos;ve joined!</p>
                           <p className="text-xs text-muted-foreground">
                             Contact <span className="font-medium text-foreground">{selectedListing.name}</span> at{" "}
-                            <a href={`mailto:${selectedListing.contact}`} className="text-primary hover:underline">
+                            <a
+                              href={`mailto:${selectedListing.contact}`}
+                              className="text-primary hover:underline"
+                            >
                               {selectedListing.contact}
-                            </a>{" "}to coordinate.
+                            </a>{" "}
+                            to coordinate.
                           </p>
                         </div>
                         <div className="flex gap-3">
@@ -632,31 +602,28 @@ export default function PartnerPage() {
                         >
                           Close
                         </button>
-                        {Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1)) === 0 ? (
-                          <button className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white" disabled>
+                        {selectedListing.maxParticipants - selectedListing.currentParticipants <= 0 ? (
+                          <button
+                            className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white"
+                            disabled
+                          >
                             Full
                           </button>
                         ) : (
                           <button
                             className="flex-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                            onClick={() => { setJoinMode("join"); setJoinName(""); setJoinError(""); }}
+                            onClick={() => {
+                              setJoinMode("join");
+                              setJoinName("");
+                              setJoinError("");
+                            }}
                           >
                             {selectedListing.seeking === "partner" ? "Partner Up" : "Join Group"}
                           </button>
                         )}
                       </div>
                     )
-                  ) : (
-                    <div className="flex gap-3">
-                      <button onClick={closeModal} className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent">
-                        Close
-                      </button>
-                      <button className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white" disabled>
-                        Loading...
-                      </button>
-                    </div>
-                  )
-                )}
+                  ) : null)}
               </div>
             </div>
           </div>
@@ -664,7 +631,7 @@ export default function PartnerPage() {
       )}
 
       {/* Participant Info Popup */}
-      {selectedParticipant && (
+      {selectedParticipant && selectedListing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-sm rounded-lg bg-card p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
@@ -685,7 +652,7 @@ export default function PartnerPage() {
                 <div>
                   <h3 className="font-medium">{selectedParticipant}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {selectedParticipant === selectedListing?.name ? "Organizer" : "Participant"}
+                    {selectedParticipant === selectedListing.name ? "Organizer" : "Participant"}
                   </p>
                 </div>
               </div>
@@ -693,7 +660,7 @@ export default function PartnerPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">📧</span>
-                  {selectedParticipant === selectedListing?.name ? (
+                  {selectedParticipant === selectedListing.name ? (
                     <a
                       href={`mailto:${selectedListing.contact}`}
                       className="text-primary hover:underline"
@@ -709,32 +676,28 @@ export default function PartnerPage() {
                 <div className="flex items-center gap-2">
                   <span className="font-medium">🎯</span>
                   <span>
-                    {selectedParticipant === selectedListing?.name
+                    {selectedParticipant === selectedListing.name
                       ? `Organising ${selectedListing.activity}`
-                      : `Joined ${selectedListing?.activity}`}
+                      : `Joined ${selectedListing.activity}`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">📍</span>
-                  <span>{selectedListing?.location}</span>
+                  <span>{selectedListing.location}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">🕒</span>
-                  <span>{selectedListing?.time}</span>
+                  <span>{selectedListing.time}</span>
                 </div>
               </div>
 
-              {selectedParticipant !== selectedListing?.name && (
+              {selectedParticipant !== selectedListing.name && (
                 <div className="pt-3 border-t">
                   <p className="text-xs text-muted-foreground">
                     To coordinate, contact the organiser{" "}
-                    <span className="font-medium text-foreground">{selectedListing?.name}</span>{" "}
-                    at{" "}
-                    <a
-                      href={`mailto:${selectedListing?.contact}`}
-                      className="text-primary hover:underline"
-                    >
-                      {selectedListing?.contact}
+                    <span className="font-medium text-foreground">{selectedListing.name}</span> at{" "}
+                    <a href={`mailto:${selectedListing.contact}`} className="text-primary hover:underline">
+                      {selectedListing.contact}
                     </a>
                   </p>
                 </div>
@@ -746,8 +709,8 @@ export default function PartnerPage() {
 
       {/* Add Listing Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-card p-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-card p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Post a Partner Listing</h2>
               <button
@@ -872,6 +835,20 @@ export default function PartnerPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium mb-1">Contact (email or phone)</label>
+                <input
+                  type="text"
+                  value={formData.contact}
+                  onChange={(e) => handleInputChange("contact", e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  placeholder="netid@nyu.edu"
+                  required
+                />
+              </div>
+
+              {formError && <p className="text-sm text-red-600">{formError}</p>}
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -882,9 +859,10 @@ export default function PartnerPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  disabled={submitting}
+                  className="flex-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
-                  Post Listing
+                  {submitting ? "Posting..." : "Post Listing"}
                 </button>
               </div>
             </form>

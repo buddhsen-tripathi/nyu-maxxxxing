@@ -13,6 +13,7 @@ import {
   mentorSlots,
   printers as printersTable,
   communityNotes,
+  sublets,
 } from "@/db/schema";
 import { desc } from "drizzle-orm";
 
@@ -578,6 +579,7 @@ export const agentTools = {
         .enum([
           "spaces",
           "exchange",
+          "sublets",
           "mentoring",
           "printers",
           "partner",
@@ -601,6 +603,7 @@ export const agentTools = {
         printers: { href: "/printers", default: "Open Printers" },
         partner: { href: "/partner", default: "Open Partner Board" },
         community: { href: "/community", default: "Open Community Feed" },
+        sublets: { href: "/sublets", default: "Open Sublets" },
       };
       const m = map[tab];
       return { tab, href: m.href, label: label ?? m.default };
@@ -1106,7 +1109,12 @@ export const agentTools = {
       try {
         const [created] = await db
           .insert(partners)
-          .values({ ...input, active: true })
+          .values({
+            ...input,
+            participants: [input.name],
+            maxParticipants: input.seeking === "partner" ? 2 : 6,
+            active: true,
+          })
           .returning();
         return {
           success: true,
@@ -1146,6 +1154,25 @@ export const agentTools = {
         if (!listing) return { success: false, error: "Partner listing not found." };
         if (!listing.active)
           return { success: false, error: "That listing is no longer active." };
+
+        // Append joiner to participants[] so the page reflects them.
+        // Capacity + dedupe checks live here — same rules as /api/partners/[id]/join.
+        const current = listing.participants ?? [];
+        const alreadyIn = current.some(
+          (p) => p.toLowerCase() === joinerName.toLowerCase()
+        );
+        if (!alreadyIn) {
+          if (current.length >= listing.maxParticipants) {
+            return {
+              success: false,
+              error: `"${listing.activity}" is full (${current.length}/${listing.maxParticipants}).`,
+            };
+          }
+          await db
+            .update(partners)
+            .set({ participants: [...current, joinerName] })
+            .where(eq(partners.id, listingId));
+        }
 
         const contactIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(listing.contact.trim());
 
@@ -1865,6 +1892,223 @@ export const agentTools = {
             err instanceof Error
               ? `Course search failed: ${err.message}`
               : "Course search failed.",
+        };
+      }
+    },
+  }),
+
+  // ─── Sublets / Housing ────────────────────────────────────────────────────
+
+  searchSublets: tool({
+    description:
+      "Search active NYU student sublet / housing listings. Filter by neighborhood, max monthly rent, bedrooms, lease window (any listing whose lease includes a date in your query window), or free-text keyword. Returns id, title, neighborhood, rent, lease dates, bedrooms/bathrooms, furnished, lister name + email + phone.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .optional()
+        .describe("Match against title / description / neighborhood / lister name"),
+      neighborhood: z.string().optional().describe("Match against neighborhood"),
+      maxRent: z.number().int().min(0).optional().describe("Max monthly rent ($)"),
+      bedrooms: z
+        .number()
+        .min(0)
+        .optional()
+        .describe("Filter by exact bedroom count (0 = studio)"),
+      furnishedOnly: z.boolean().optional(),
+      // Lease window — a listing matches if its lease window OVERLAPS the requested window
+      windowStart: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe("ISO date — start of the user's desired window"),
+      windowEnd: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe("ISO date — end of the user's desired window"),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
+    execute: async ({
+      query,
+      neighborhood,
+      maxRent,
+      bedrooms,
+      furnishedOnly,
+      windowStart,
+      windowEnd,
+      limit = 8,
+    }) => {
+      try {
+        const rows = await db
+          .select()
+          .from(sublets)
+          .where(eq(sublets.active, true))
+          .orderBy(desc(sublets.createdAt));
+
+        let results = rows.filter((s) => {
+          if (neighborhood && !ciIncludes(s.neighborhood, neighborhood)) return false;
+          if (maxRent !== undefined && s.monthlyRent > maxRent) return false;
+          if (bedrooms !== undefined && s.bedrooms !== bedrooms) return false;
+          if (furnishedOnly && !s.furnished) return false;
+          if (query) {
+            const q = query.toLowerCase();
+            const blob =
+              `${s.title} ${s.description} ${s.neighborhood} ${s.listerName}`.toLowerCase();
+            if (!blob.includes(q)) return false;
+          }
+          // Window overlap test: listing's [leaseStart, leaseEnd] must intersect
+          // the requested [windowStart, windowEnd] window.
+          if (windowStart && s.leaseEnd < windowStart) return false;
+          if (windowEnd && s.leaseStart > windowEnd) return false;
+          return true;
+        });
+        results = results.slice(0, limit);
+
+        if (results.length === 0)
+          return {
+            found: 0,
+            message:
+              "No sublets matched. Try widening the rent range, dropping the neighborhood filter, or broadening the lease window.",
+          };
+
+        return {
+          found: results.length,
+          sublets: results.map((s) => ({
+            id: s.id,
+            title: s.title,
+            description: s.description,
+            neighborhood: s.neighborhood,
+            address: s.address ?? undefined,
+            monthlyRent: s.monthlyRent,
+            utilitiesIncluded: s.utilitiesIncluded,
+            leaseStart: s.leaseStart,
+            leaseEnd: s.leaseEnd,
+            bedrooms: s.bedrooms,
+            bathrooms: s.bathrooms,
+            furnished: s.furnished,
+            genderPref: s.genderPref ?? "any",
+            listerName: s.listerName,
+            contactEmail: s.contactEmail,
+            contactPhone: s.contactPhone ?? undefined,
+            createdAt: s.createdAt.toISOString(),
+          })),
+        };
+      } catch (err) {
+        return {
+          found: 0,
+          message:
+            err instanceof Error ? `Sublet lookup failed: ${err.message}` : "Could not load sublets.",
+        };
+      }
+    },
+  }),
+
+  createSubletListing: tool({
+    description:
+      "Post a new sublet/housing listing. Collect ALL required fields from the user — title, description, neighborhood, monthly rent, lease start, lease end, bedrooms (0 = studio), bathrooms, furnished y/n, lister name, contact email — then call. Confirm details before posting. If the user attached photos, pass the URLs from the [ATTACHED_IMAGE_URLS] marker.",
+    inputSchema: z.object({
+      title: z.string().min(1).max(140),
+      description: z.string().min(1).max(2000),
+      neighborhood: z.string().min(1).max(80),
+      address: z.string().max(120).optional(),
+      monthlyRent: z.number().int().min(0).max(20000),
+      utilitiesIncluded: z.boolean().default(false),
+      leaseStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      leaseEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      bedrooms: z.number().min(0).max(10),
+      bathrooms: z.number().min(0).max(10),
+      furnished: z.boolean().default(false),
+      genderPref: z.enum(["any", "female", "male", "nonbinary"]).optional(),
+      imageUrls: z.array(z.string().min(1)).default([]),
+      listerName: z.string().min(1).max(60),
+      contactEmail: z.string().email(),
+      contactPhone: z.string().max(40).optional(),
+    }),
+    execute: async (input) => {
+      try {
+        const res = await fetch(`${appBaseUrl()}/api/sublets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          return { success: false, error: body.error ?? `API ${res.status}` };
+        }
+        const data = (await res.json()) as {
+          sublet: { id: number; title: string };
+        };
+        return {
+          success: true,
+          subletId: data.sublet.id,
+          message: `Posted "${data.sublet.title}" to the Sublets board.`,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Could not post sublet.",
+        };
+      }
+    },
+  }),
+
+  deleteSubletListing: tool({
+    description:
+      "Soft-delete a sublet listing (marks it inactive). Use ONLY when the user explicitly says they want to take down their listing. Confirm by title before calling.",
+    inputSchema: z.object({ id: z.number().int().positive() }),
+    execute: async ({ id }) => {
+      try {
+        const res = await fetch(`${appBaseUrl()}/api/sublets/${id}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          return { success: false, error: body.error ?? `API ${res.status}` };
+        }
+        return { success: true, message: `Removed sublet #${id}.` };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Delete failed.",
+        };
+      }
+    },
+  }),
+
+  expressInterestInSublet: tool({
+    description:
+      "Email the lister of a sublet on the user's behalf. Use when the user wants to claim or ask about a sublet. Find the listing first via searchSublets (need id, title, listerName, contactEmail). Collect interestedName + interestedEmail + message; optional desired move-in/out window.",
+    inputSchema: z.object({
+      subletId: z.number().int().positive(),
+      subletTitle: z.string().min(1),
+      listerName: z.string().min(1),
+      listerEmail: z.string().email(),
+      interestedName: z.string().min(1),
+      interestedEmail: z.string().email(),
+      interestedPhone: z.string().optional(),
+      message: z.string().min(1).max(1000),
+      desiredStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      desiredEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }),
+    execute: async (input) => {
+      try {
+        const res = await fetch(`${appBaseUrl()}/api/sublets/interest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          return { success: false, error: body.error ?? `API ${res.status}` };
+        }
+        return {
+          success: true,
+          message: `Emailed ${input.listerName} about "${input.subletTitle}".`,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Email failed.",
         };
       }
     },

@@ -129,6 +129,41 @@ export const partners = pgTable("partners", {
   location: text("location").notNull(), // "NYU Gym", "Washington Square Park", etc.
   name: text("name").notNull(),
   contact: text("contact").notNull(), // email or phone
+  // Capacity tracking (organizer counts as 1 of max)
+  maxParticipants: integer("max_participants").default(2).notNull(),
+  participants: text("participants")
+    .array()
+    .default(sql`'{}'::text[]`)
+    .notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Sublets / Housing ──
+export const sublets = pgTable("sublets", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  // Location
+  neighborhood: text("neighborhood").notNull(), // East Village, Greenwich Village, etc.
+  address: text("address"), // optional cross-street or building
+  // Pricing
+  monthlyRent: integer("monthly_rent").notNull(),
+  utilitiesIncluded: boolean("utilities_included").default(false).notNull(),
+  // Lease window — ISO YYYY-MM-DD
+  leaseStart: text("lease_start").notNull(),
+  leaseEnd: text("lease_end").notNull(),
+  // Apartment specs
+  bedrooms: real("bedrooms").notNull(), // 0 = studio
+  bathrooms: real("bathrooms").notNull(),
+  furnished: boolean("furnished").default(false).notNull(),
+  genderPref: text("gender_pref"), // null = any
+  // Photos + contact
+  imageUrls: text("image_urls").array().default(sql`'{}'::text[]`).notNull(),
+  listerName: text("lister_name").notNull(),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone"),
+  // Lifecycle
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

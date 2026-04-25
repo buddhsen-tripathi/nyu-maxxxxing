@@ -1,11 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./node_modules/.bin/drizzle-kit push *)"
+      "Bash(./node_modules/.bin/drizzle-kit push *)",
+      "Bash(curl -sSf http://localhost:3000/api/partners -o /tmp/_pp.json --max-time 2)",
+      "Bash(curl -sSf http://localhost:3000/api/partners)"
     ],
     "additionalDirectories": [
       "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/files",
-      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/community-notes/[id]"
+      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/community-notes/[id]",
+      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/partners/[id]",
+      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/sublets"
     ]
   }
 }
