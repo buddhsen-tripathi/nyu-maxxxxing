@@ -7,6 +7,7 @@ import {
   integer,
   real,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ── Study Spaces ──
 export const spaces = pgTable("spaces", {
@@ -30,6 +31,11 @@ export const listings = pgTable("listings", {
   condition: text("condition"),
   sellerName: text("seller_name").notNull(),
   contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  imageUrls: text("image_urls")
+    .array()
+    .default(sql`'{}'::text[]`)
+    .notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   ChevronLeft,
@@ -30,7 +30,7 @@ type Listing = {
   sellerEmail: string;
   sellerPhone: string;
   imageUrls: string[];
-  postedMinutesAgo: number;
+  createdAt: string;
 };
 
 type SortOption = "newest" | "priceLow" | "priceHigh";
@@ -46,87 +46,6 @@ const categories: Array<"All" | Category> = [
 
 const conditionOptions: Array<"All" | Condition> = ["All", "Like New", "Good", "Fair", "N/A"];
 
-const initialListings: Listing[] = [
-  {
-    id: 1,
-    title: "Calculus: Early Transcendentals (8th Ed)",
-    description: "Used for MATH-UA 121. Minimal highlighting, all pages intact.",
-    category: "Textbooks",
-    price: 35,
-    condition: "Good",
-    seller: "Alex M.",
-    sellerEmail: "alexm@nyu.edu",
-    sellerPhone: "(646) 555-0131",
-    imageUrls: [],
-    postedMinutesAgo: 120,
-  },
-  {
-    id: 2,
-    title: "IKEA KALLAX Shelf Unit",
-    description: "White 4-cube shelf. Great for dorm storage, pickup near Union Square.",
-    category: "Furniture",
-    price: 40,
-    condition: "Like New",
-    seller: "Jordan K.",
-    sellerEmail: "jordan.k@nyu.edu",
-    sellerPhone: "(917) 555-0198",
-    imageUrls: [],
-    postedMinutesAgo: 300,
-  },
-  {
-    id: 3,
-    title: "5 Meal Swipes - Lipton",
-    description: "Can meet at Lipton turnstiles this week after 6pm.",
-    category: "Meal Swipes",
-    price: 20,
-    condition: "N/A",
-    seller: "Sam R.",
-    sellerEmail: "samr@nyu.edu",
-    sellerPhone: "(212) 555-0162",
-    imageUrls: [],
-    postedMinutesAgo: 60,
-  },
-  {
-    id: 4,
-    title: "Introduction to Algorithms (CLRS)",
-    description: "3rd edition hardcover. Slight wear on corners.",
-    category: "Textbooks",
-    price: 25,
-    condition: "Fair",
-    seller: "Priya D.",
-    sellerEmail: "priya.d@nyu.edu",
-    sellerPhone: "(718) 555-0129",
-    imageUrls: [],
-    postedMinutesAgo: 1440,
-  },
-  {
-    id: 5,
-    title: "Desk Lamp - LED Adjustable",
-    description: "Free if you can pick up from Third North by tonight.",
-    category: "Furniture",
-    price: 0,
-    condition: "Good",
-    seller: "Chris T.",
-    sellerEmail: "ct2730@nyu.edu",
-    sellerPhone: "(347) 555-0144",
-    imageUrls: [],
-    postedMinutesAgo: 180,
-  },
-  {
-    id: 6,
-    title: "10 Meal Swipes - Palladium",
-    description: "Flexible timing this weekend. Venmo preferred.",
-    category: "Meal Swipes",
-    price: 35,
-    condition: "N/A",
-    seller: "Maya L.",
-    sellerEmail: "maya.l@nyu.edu",
-    sellerPhone: "(646) 555-0107",
-    imageUrls: [],
-    postedMinutesAgo: 30,
-  },
-];
-
 const categoryIcons: Record<Category, typeof BookOpen> = {
   Textbooks: BookOpen,
   Furniture: Sofa,
@@ -135,7 +54,13 @@ const categoryIcons: Record<Category, typeof BookOpen> = {
   Other: Tag,
 };
 
-function formatPosted(minutesAgo: number) {
+function formatPosted(createdAtIso: string) {
+  const createdAt = new Date(createdAtIso);
+  if (Number.isNaN(createdAt.getTime())) {
+    return "Recently";
+  }
+
+  const minutesAgo = Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / 60000));
   if (minutesAgo < 60) {
     return `${minutesAgo} min ago`;
   }
@@ -169,7 +94,9 @@ async function readFilesAsDataUrls(files: File[]) {
 }
 
 export default function ExchangePage() {
-  const [allListings, setAllListings] = useState<Listing[]>(initialListings);
+  const [allListings, setAllListings] = useState<Listing[]>([]);
+  const [isLoadingListings, setIsLoadingListings] = useState(true);
+  const [listingLoadError, setListingLoadError] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<"All" | Category>("All");
   const [selectedCondition, setSelectedCondition] = useState<"All" | Condition>("All");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
@@ -199,6 +126,47 @@ export default function ExchangePage() {
     message: "",
   });
   const [formError, setFormError] = useState("");
+  const interestFormRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const loadListings = async () => {
+      try {
+        setIsLoadingListings(true);
+        setListingLoadError("");
+
+        const response = await fetch("/api/exchange/listings", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Unable to load listings from the server.");
+        }
+
+        const payload = (await response.json()) as { listings?: Listing[] };
+        setAllListings(payload.listings ?? []);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to load listings from the server.";
+        setListingLoadError(message);
+      } finally {
+        setIsLoadingListings(false);
+      }
+    };
+
+    void loadListings();
+  }, []);
+
+  useEffect(() => {
+    if (!showInterestForm) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      interestFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [showInterestForm]);
 
   const visibleListings = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -217,7 +185,7 @@ export default function ExchangePage() {
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       if (sortBy === "newest") {
-        return a.postedMinutesAgo - b.postedMinutesAgo;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
       if (sortBy === "priceLow") {
         return a.price - b.price;
@@ -256,7 +224,7 @@ export default function ExchangePage() {
     }));
   };
 
-  const handleCreateListing = () => {
+  const handleCreateListing = async () => {
     const title = newListing.title.trim();
     const description = newListing.description.trim();
     const seller = newListing.seller.trim();
@@ -285,22 +253,40 @@ export default function ExchangePage() {
       return;
     }
 
-    setAllListings((current) => [
-      {
-        id: (current.length === 0 ? 0 : Math.max(...current.map((item) => item.id))) + 1,
-        title,
-        description,
-        category: newListing.category,
-        condition: newListing.condition,
-        price: parsedPrice,
-        seller,
-        sellerEmail,
-        sellerPhone,
-        imageUrls: newListing.imagePreviews,
-        postedMinutesAgo: 0,
-      },
-      ...current,
-    ]);
+    try {
+      const response = await fetch("/api/exchange/listings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          description,
+          category: newListing.category,
+          condition: newListing.condition,
+          price: parsedPrice,
+          sellerName: seller,
+          sellerEmail,
+          sellerPhone,
+          imageUrls: newListing.imagePreviews,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(payload?.error ?? "Unable to save listing.");
+      }
+
+      const payload = (await response.json()) as { listing: Listing };
+      setAllListings((current) => [payload.listing, ...current]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save listing to the database.";
+      setFormError(message);
+      return;
+    }
 
     setNewListing({
       title: "",
@@ -468,6 +454,18 @@ export default function ExchangePage() {
         Showing {visibleListings.length} of {allListings.length} listings
       </p>
 
+      {listingLoadError ? (
+        <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {listingLoadError}
+        </div>
+      ) : null}
+
+      {isLoadingListings ? (
+        <div className="mb-4 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+          Loading listings...
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {visibleListings.map((item) => {
           const Icon = categoryIcons[item.category] ?? Tag;
@@ -512,7 +510,7 @@ export default function ExchangePage() {
 
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{item.seller}</span>
-                  <span>{formatPosted(item.postedMinutesAgo)}</span>
+                  <span>{formatPosted(item.createdAt)}</span>
                 </div>
               </div>
             </button>
@@ -784,7 +782,7 @@ export default function ExchangePage() {
               <p>Category: <span className="text-foreground">{selectedListing.category}</span></p>
               <p>Condition: <span className="text-foreground">{selectedListing.condition}</span></p>
               <p>Price: <span className="text-foreground">{formatPrice(selectedListing.price)}</span></p>
-              <p>Posted: <span className="text-foreground">{formatPosted(selectedListing.postedMinutesAgo)}</span></p>
+              <p>Posted: <span className="text-foreground">{formatPosted(selectedListing.createdAt)}</span></p>
             </div>
 
             <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{selectedListing.description}</p>
@@ -827,7 +825,7 @@ export default function ExchangePage() {
             </div>
 
             {showInterestForm ? (
-              <div className="mt-4 rounded-lg border border-border bg-background p-4">
+              <div ref={interestFormRef} className="mt-4 rounded-lg border border-border bg-background p-4">
                 <h3 className="mb-3 text-sm font-medium">Send interest to {selectedListing.seller}</h3>
 
                 <div className="grid gap-3">
