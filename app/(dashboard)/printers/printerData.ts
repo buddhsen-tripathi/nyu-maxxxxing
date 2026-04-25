@@ -1,0 +1,143 @@
+import type { Printer } from "./types";
+
+const now = new Date();
+function hoursAgo(h: number) {
+  return new Date(now.getTime() - h * 3600_000).toISOString();
+}
+
+// Seed data: real NYU building coordinates + varied timestamps to
+// demonstrate green/red/yellow markers and the "stale" detection.
+export const initialPrinters: Printer[] = [
+  // ─── NYU Tandon (Brooklyn) ───────────────────────────────────────
+  {
+    id: "dib-3-a",
+    name: "Dibner 3F – A",
+    building: "5 MetroTech Center",
+    floor: "3rd Floor",
+    printer_type: "B&W Laser",
+    latitude: 40.6934,
+    longitude: -73.9868,
+    status: "working",
+    last_updated: hoursAgo(1),
+    last_reported_by: "student",
+  },
+  {
+    id: "dib-3-b",
+    name: "Dibner 3F – B",
+    building: "5 MetroTech Center",
+    floor: "3rd Floor",
+    printer_type: "Color Laser",
+    latitude: 40.6935,
+    longitude: -73.9866,
+    status: "not_working",
+    last_updated: hoursAgo(3),
+    last_reported_by: "student",
+  },
+  {
+    id: "dib-5",
+    name: "Dibner 5F",
+    building: "5 MetroTech Center",
+    floor: "5th Floor",
+    printer_type: "B&W Laser",
+    latitude: 40.6933,
+    longitude: -73.9870,
+    status: "working",
+    // Stale – not verified in 72 h; will show yellow warning ring
+    last_updated: hoursAgo(72),
+  },
+  {
+    id: "rogers-1",
+    name: "Rogers Hall 1F",
+    building: "6 MetroTech West",
+    floor: "1st Floor",
+    printer_type: "B&W Laser",
+    latitude: 40.6940,
+    longitude: -73.9862,
+    status: "unknown",
+    last_updated: hoursAgo(120),
+  },
+  {
+    id: "paulson-2",
+    name: "Paulson Center 2F",
+    building: "370 Jay Street",
+    floor: "2nd Floor",
+    printer_type: "B&W Laser",
+    latitude: 40.6924,
+    longitude: -73.9874,
+    status: "working",
+    last_updated: hoursAgo(2),
+    last_reported_by: "admin",
+  },
+
+  // ─── NYU Manhattan (Washington Square) ──────────────────────────
+  {
+    id: "bob-ll",
+    name: "Bobst Lower Level",
+    building: "70 Washington Sq S",
+    floor: "Lower Level",
+    printer_type: "B&W Laser",
+    latitude: 40.7296,
+    longitude: -73.9977,
+    status: "working",
+    last_updated: hoursAgo(0.5),
+    last_reported_by: "student",
+  },
+  {
+    id: "bob-4",
+    name: "Bobst 4th Floor",
+    building: "70 Washington Sq S",
+    floor: "4th Floor",
+    printer_type: "Color Laser",
+    latitude: 40.7298,
+    longitude: -73.9975,
+    status: "not_working",
+    last_updated: hoursAgo(5),
+    last_reported_by: "student",
+  },
+  {
+    id: "kimmel-3",
+    name: "Kimmel Center 3F",
+    building: "60 Washington Sq S",
+    floor: "3rd Floor",
+    printer_type: "Color Laser",
+    latitude: 40.7299,
+    longitude: -73.9983,
+    status: "working",
+    last_updated: hoursAgo(4),
+  },
+  {
+    id: "silver-2",
+    name: "Silver Center 2F",
+    building: "100 Washington Sq E",
+    floor: "2nd Floor",
+    printer_type: "B&W Laser",
+    latitude: 40.7301,
+    longitude: -73.9971,
+    status: "unknown",
+    last_updated: hoursAgo(96),
+  },
+  {
+    id: "wsp-lab",
+    name: "Warren Weaver Lab",
+    building: "Warren Weaver Hall",
+    floor: "1st Floor",
+    printer_type: "B&W Laser",
+    latitude: 40.7288,
+    longitude: -73.9977,
+    status: "not_working",
+    last_updated: hoursAgo(6),
+    last_reported_by: "student",
+  },
+  {
+    id: "tisch-1",
+    name: "Tisch Hall 1F",
+    building: "40 W 4th St",
+    floor: "1st Floor",
+    printer_type: "Color Laser",
+    latitude: 40.7291,
+    longitude: -73.9967,
+    status: "working",
+    // Stale but working
+    last_updated: hoursAgo(60),
+  },
+];
