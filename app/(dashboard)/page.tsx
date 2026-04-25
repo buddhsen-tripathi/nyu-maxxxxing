@@ -21,7 +21,7 @@ import {
   CalendarCheck,
   ExternalLink,
 } from "lucide-react";
-import { useChatReset, useUserContext } from "./chat-context";
+import { useChatReset, useUserContext, CHAT_MESSAGES_KEY } from "./chat-context";
 import { uploadChatImageAction } from "./chat-actions";
 import { Markdown } from "../components/markdown";
 
@@ -78,12 +78,53 @@ function ChatInner() {
     [getUserContext]
   );
 
-  const { messages, sendMessage, status } = useChat({ transport });
+  const { messages, sendMessage, status, setMessages } = useChat({ transport });
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isLoading = status === "submitted" || status === "streaming";
+
+  // Hydrate messages from localStorage once on mount, then mark ready.
+  // Gating the render on `hydrated` avoids the empty-state flash when the
+  // user navigates back to the chat tab and we have saved messages.
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setHydrated(true);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(CHAT_MESSAGES_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        }
+      }
+    } catch {
+      // corrupt JSON or quota — fall through to empty state
+    }
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist messages on every change (post-hydration, while not streaming).
+  // Skipping during streaming avoids hundreds of localStorage writes per second
+  // as text deltas roll in; the final state lands on `status === "ready"`.
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    if (status === "submitted" || status === "streaming") return;
+    try {
+      if (messages.length === 0) {
+        localStorage.removeItem(CHAT_MESSAGES_KEY);
+      } else {
+        localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(messages));
+      }
+    } catch {
+      // quota exceeded — silently ignore
+    }
+  }, [messages, status, hydrated]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -158,6 +199,13 @@ function ChatInner() {
 
   function removeFileAt(idx: number) {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  /* ── Hydrating placeholder ── */
+  // Render an invisible shell that takes the same vertical space as the
+  // empty state, so the layout doesn't shift when saved messages load in.
+  if (!hydrated) {
+    return <div className="flex min-h-full" aria-hidden />;
   }
 
   /* ── Empty state ── */

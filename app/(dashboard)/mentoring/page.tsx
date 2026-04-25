@@ -1041,7 +1041,7 @@ export default function MentoringPage() {
 
             {mentor.slots.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-1.5">
-                {mentor.slots.map((sl, i) => (
+                {mentor.slots.slice(0, 3).map((sl, i) => (
                   <span
                     key={i}
                     className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground"
@@ -1050,6 +1050,15 @@ export default function MentoringPage() {
                     {formatSlotDate(sl.date)} · {sl.startTime}
                   </span>
                 ))}
+                {mentor.slots.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => mentor.available && setBookingMentor(mentor)}
+                    className="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    +{mentor.slots.length - 3} more
+                  </button>
+                )}
               </div>
             )}
 

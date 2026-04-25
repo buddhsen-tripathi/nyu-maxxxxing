@@ -11,6 +11,7 @@ import {
 import { usePathname } from "next/navigation";
 
 const STORAGE_KEY = "nyu-mx:user-context:v1";
+export const CHAT_MESSAGES_KEY = "nyu-mx:chat-messages:v1";
 const CHECKIN_LIMIT = 5;
 
 type Persisted = {
@@ -114,7 +115,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<ChatContextValue>(
     () => ({
       chatKey,
-      newChat: () => setChatKey((k) => k + 1),
+      newChat: () => {
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.removeItem(CHAT_MESSAGES_KEY);
+          } catch {
+            // ignore
+          }
+        }
+        setChatKey((k) => k + 1);
+      },
       favoriteSpaces,
       toggleFavoriteSpace,
       isFavoriteSpace,
