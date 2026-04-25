@@ -1,147 +1,148 @@
 "use client";
 
-import { useState } from "react";
+import dynamic from "next/dynamic";
+import { useState, useMemo } from "react";
 import {
-  Printer,
-  MapPin,
+  Send,
+  ArrowRightLeft,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Send,
-  ArrowRightLeft,
+  MapPin,
 } from "lucide-react";
 
-type PrinterStatus = "online" | "offline" | "issue";
-
-interface PrinterInfo {
-  id: string;
-  name: string;
-  building: string;
-  floor: string;
-  type: string;
-  status: PrinterStatus;
-  issue?: string;
-}
-
-const printers: PrinterInfo[] = [
-  {
-    id: "dib-3-a",
-    name: "Dibner 3F - A",
-    building: "5 MetroTech Center",
-    floor: "3rd Floor",
-    type: "B&W Laser",
-    status: "online",
-  },
-  {
-    id: "dib-3-b",
-    name: "Dibner 3F - B",
-    building: "5 MetroTech Center",
-    floor: "3rd Floor",
-    type: "Color Laser",
-    status: "online",
-  },
-  {
-    id: "dib-5",
-    name: "Dibner 5F",
-    building: "5 MetroTech Center",
-    floor: "5th Floor",
-    type: "B&W Laser",
-    status: "issue",
-    issue: "Paper jam reported 20 min ago",
-  },
-  {
-    id: "bob-ll",
-    name: "Bobst Lower Level",
-    building: "70 Washington Sq S",
-    floor: "Lower Level",
-    type: "B&W Laser",
-    status: "online",
-  },
-  {
-    id: "bob-4",
-    name: "Bobst 4th Floor",
-    building: "70 Washington Sq S",
-    floor: "4th Floor",
-    type: "Color Laser",
-    status: "offline",
-    issue: "Out of toner",
-  },
-  {
-    id: "paulson-2",
-    name: "Paulson Center 2F",
-    building: "370 Jay Street",
-    floor: "2nd Floor",
-    type: "B&W Laser",
-    status: "online",
-  },
-  {
-    id: "kimmel-3",
-    name: "Kimmel Center 3F",
-    building: "60 Washington Sq S",
-    floor: "3rd Floor",
-    type: "Color Laser",
-    status: "online",
-  },
-  {
-    id: "wsp-lab",
-    name: "WSP Computer Lab",
-    building: "Warren Weaver Hall",
-    floor: "1st Floor",
-    type: "B&W Laser",
-    status: "issue",
-    issue: "Slow printing — queue backed up",
-  },
-];
-
-const statusConfig: Record<
+import { initialPrinters } from "./printerData";
+import ReportModal from "./ReportModal";
+import { isStale, getRelativeTime } from "./PrinterMap";
+import type {
+  Printer as PrinterType,
+  PrinterFilter,
   PrinterStatus,
-  { label: string; icon: typeof CheckCircle2; className: string }
-> = {
-  online: {
-    label: "Online",
-    icon: CheckCircle2,
-    className: "text-green-600",
-  },
-  offline: {
-    label: "Offline",
-    icon: XCircle,
-    className: "text-red-500",
-  },
-  issue: {
-    label: "Issue",
-    icon: AlertTriangle,
-    className: "text-amber-500",
-  },
+  StatusReport,
+} from "./types";
+
+// Dynamically import the map so Leaflet (which needs `window`) never runs SSR
+const PrinterMap = dynamic(() => import("./PrinterMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center rounded-xl bg-accent/30 text-sm text-muted-foreground">
+      Loading map…
+    </div>
+  ),
+});
+
+// ─── Status helpers ──────────────────────────────────────────────────────────
+
+const STATUS_COLOR: Record<PrinterStatus, string> = {
+  working: "text-green-600",
+  not_working: "text-red-500",
+  unknown: "text-amber-500",
 };
 
-type Tab = "directory" | "report" | "share";
+const STATUS_BG: Record<PrinterStatus, string> = {
+  working: "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900",
+  not_working: "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900",
+  unknown: "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900",
+};
+
+const STATUS_ICON: Record<PrinterStatus, typeof CheckCircle2> = {
+  working: CheckCircle2,
+  not_working: XCircle,
+  unknown: AlertTriangle,
+};
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
+
+type Tab = "map" | "report" | "share";
+
+const tabs: { key: Tab; label: string }[] = [
+  { key: "map", label: "Find Printers" },
+  { key: "report", label: "Report Issue" },
+  { key: "share", label: "Share Credits" },
+];
+
+// ─── Page component ──────────────────────────────────────────────────────────
 
 export default function PrintersPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("directory");
-  const [filter, setFilter] = useState<"all" | PrinterStatus>("all");
+  const [activeTab, setActiveTab] = useState<Tab>("map");
 
-  // Report form
-  const [reportPrinter, setReportPrinter] = useState("");
-  const [reportIssue, setReportIssue] = useState("");
-  const [reportSubmitted, setReportSubmitted] = useState(false);
+  // Printer state – in production this would come from an API / SWR / React Query
+  const [printers, setPrinters] = useState<PrinterType[]>(initialPrinters);
 
-  // Share form
+  // Map filter
+  const [filter, setFilter] = useState<PrinterFilter>("all");
+
+  // Report modal
+  const [reportingId, setReportingId] = useState<string | null>(null);
+  const reportingPrinter = useMemo(
+    () => printers.find((p) => p.id === reportingId) ?? null,
+    [printers, reportingId]
+  );
+
+  // Legacy "Report Issue" tab state (kept intact)
+  const [issueReportPrinter, setIssueReportPrinter] = useState("");
+  const [issueReportText, setIssueReportText] = useState("");
+  const [issueSubmitted, setIssueSubmitted] = useState(false);
+
+  // "Share Credits" tab state (kept intact)
   const [shareAmount, setShareAmount] = useState("");
   const [shareRecipient, setShareRecipient] = useState("");
   const [shareSubmitted, setShareSubmitted] = useState(false);
 
-  const filtered =
-    filter === "all" ? printers : printers.filter((p) => p.status === filter);
+  // ── Filter logic ──────────────────────────────────────────────────────────
+  const filteredPrinters = useMemo(() => {
+    if (filter === "not_working")
+      return printers.filter((p) => p.status === "not_working");
+    if (filter === "needs_attention")
+      return printers.filter(
+        (p) => p.status === "unknown" || isStale(p.last_updated)
+      );
+    return printers;
+  }, [printers, filter]);
 
-  function handleReport(e: React.FormEvent) {
-    e.preventDefault();
-    setReportSubmitted(true);
-    setReportPrinter("");
-    setReportIssue("");
-    setTimeout(() => setReportSubmitted(false), 3000);
+  // ── Status update (called from ReportModal) ───────────────────────────────
+  function handleStatusReport(report: StatusReport) {
+    if (!reportingId) return;
+    setPrinters((prev) =>
+      prev.map((p) =>
+        p.id === reportingId
+          ? {
+              ...p,
+              status: report.status,
+              last_updated: new Date().toISOString(),
+              last_reported_by: "you",
+            }
+          : p
+      )
+    );
+    setReportingId(null);
   }
 
-  function handleShare(e: React.FormEvent) {
+  // ── Stat counts for the summary row ──────────────────────────────────────
+  const counts = useMemo(
+    () => ({
+      working: printers.filter((p) => p.status === "working").length,
+      not_working: printers.filter((p) => p.status === "not_working").length,
+      unknown: printers.filter((p) => p.status === "unknown").length,
+      stale: printers.filter(
+        (p) =>
+          isStale(p.last_updated) &&
+          p.status !== "not_working" &&
+          p.status !== "unknown"
+      ).length,
+    }),
+    [printers]
+  );
+
+  function handleIssueReport(e: { preventDefault(): void }) {
+    e.preventDefault();
+    setIssueSubmitted(true);
+    setIssueReportPrinter("");
+    setIssueReportText("");
+    setTimeout(() => setIssueSubmitted(false), 3000);
+  }
+
+  function handleShare(e: { preventDefault(): void }) {
     e.preventDefault();
     setShareSubmitted(true);
     setShareAmount("");
@@ -149,24 +150,19 @@ export default function PrintersPage() {
     setTimeout(() => setShareSubmitted(false), 3000);
   }
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "directory", label: "Find Printers" },
-    { key: "report", label: "Report Issue" },
-    { key: "share", label: "Share Credits" },
-  ];
-
   return (
-    <div className="p-6">
-      <div className="mb-6">
+    <div className="flex h-full flex-col p-6">
+      {/* Page header */}
+      <div className="mb-5">
         <h1 className="text-2xl font-semibold">Printers</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Find printers, report issues, and share print credits with other NYU
-          students.
+          Find printers across NYU campuses, check live status, and report
+          issues.
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="mb-6 flex gap-1 rounded-lg border border-border bg-card p-1 w-fit">
+      {/* Tab bar */}
+      <div className="mb-5 flex gap-1 rounded-lg border border-border bg-card p-1 w-fit shrink-0">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -182,75 +178,82 @@ export default function PrintersPage() {
         ))}
       </div>
 
-      {/* ── Directory tab ── */}
-      {activeTab === "directory" && (
-        <>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {(["all", "online", "issue", "offline"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilter(s)}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                  filter === s
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-card-foreground hover:bg-accent"
-                }`}
-              >
-                {s === "all"
-                  ? `All (${printers.length})`
-                  : `${s.charAt(0).toUpperCase() + s.slice(1)} (${printers.filter((p) => p.status === s).length})`}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((printer) => {
-              const st = statusConfig[printer.status];
-              const StatusIcon = st.icon;
-
-              return (
-                <div
-                  key={printer.id}
-                  className="rounded-lg border border-border bg-card p-5 transition-shadow hover:shadow-md"
+      {/* ── MAP TAB ─────────────────────────────────────────────────────── */}
+      {activeTab === "map" && (
+        <div className="flex flex-1 flex-col gap-4 min-h-0">
+          {/* Filter bar + stat chips */}
+          <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+            {/* Filters */}
+            <div className="flex gap-2">
+              {(
+                [
+                  { key: "all", label: `All (${printers.length})` },
+                  { key: "not_working", label: `Not Working (${counts.not_working})` },
+                  { key: "needs_attention", label: `Needs Attention (${counts.unknown + counts.stale})` },
+                ] as const
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setFilter(key)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    filter === key
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-card-foreground hover:bg-accent"
+                  }`}
                 >
-                  <div className="mb-3 flex items-start justify-between">
-                    <div>
-                      <h3 className="font-medium">{printer.name}</h3>
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <MapPin className="h-3 w-3" />
-                        {printer.building} &middot; {printer.floor}
-                      </p>
-                    </div>
-                    <div
-                      className={`flex items-center gap-1 text-xs font-medium ${st.className}`}
-                    >
-                      <StatusIcon className="h-3.5 w-3.5" />
-                      {st.label}
-                    </div>
-                  </div>
+                  {label}
+                </button>
+              ))}
+            </div>
 
-                  <div className="mb-2 flex items-center gap-2">
-                    <span className="rounded-md bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-                      {printer.type}
-                    </span>
-                  </div>
-
-                  {printer.issue && (
-                    <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-                      {printer.issue}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+            {/* Stat chips */}
+            <div className="flex gap-2 text-xs">
+              <span className="flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-green-700 border border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                {counts.working} working
+              </span>
+              <span className="flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-red-700 border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900">
+                <span className="h-2 w-2 rounded-full bg-red-500" />
+                {counts.not_working} down
+              </span>
+              <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900">
+                <span className="h-2 w-2 rounded-full bg-amber-400" />
+                {counts.unknown + counts.stale} unverified
+              </span>
+            </div>
           </div>
-        </>
+
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground shrink-0">
+            <LegendDot color="#22c55e" label="Working" />
+            <LegendDot color="#ef4444" label="Not Working" />
+            <LegendDot color="#eab308" label="Unknown" />
+            <span className="flex items-center gap-1">
+              <span className="flex h-3 w-3 items-center justify-center rounded-full bg-orange-400 text-[8px] text-white">!</span>
+              Orange dot = not verified in 48 h
+            </span>
+          </div>
+
+          {/* Map — takes remaining vertical space */}
+          <div className="flex-1 min-h-[400px] overflow-hidden rounded-xl border border-border">
+            <PrinterMap
+              printers={filteredPrinters}
+              onReportStatus={(id) => setReportingId(id)}
+            />
+          </div>
+
+          {/* Printer list (scrollable, below map on smaller screens) */}
+          <PrinterList
+            printers={filteredPrinters}
+            onReport={(id) => setReportingId(id)}
+          />
+        </div>
       )}
 
-      {/* ── Report tab ── */}
+      {/* ── REPORT ISSUE TAB ────────────────────────────────────────────── */}
       {activeTab === "report" && (
         <div className="max-w-lg">
-          {reportSubmitted ? (
+          {issueSubmitted ? (
             <div className="rounded-lg border border-green-200 bg-green-50 p-6 text-center dark:border-green-900 dark:bg-green-950/30">
               <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-green-600" />
               <p className="font-medium text-green-800 dark:text-green-300">
@@ -261,18 +264,18 @@ export default function PrintersPage() {
               </p>
             </div>
           ) : (
-            <form onSubmit={handleReport} className="space-y-4">
+            <form onSubmit={handleIssueReport} className="space-y-4">
               <div>
                 <label className="mb-1.5 block text-sm font-medium">
                   Printer
                 </label>
                 <select
-                  value={reportPrinter}
-                  onChange={(e) => setReportPrinter(e.target.value)}
+                  value={issueReportPrinter}
+                  onChange={(e) => setIssueReportPrinter(e.target.value)}
                   required
                   className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="">Select a printer...</option>
+                  <option value="">Select a printer…</option>
                   {printers.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} — {p.building}
@@ -280,21 +283,19 @@ export default function PrintersPage() {
                   ))}
                 </select>
               </div>
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium">
                   What's wrong?
                 </label>
                 <textarea
-                  value={reportIssue}
-                  onChange={(e) => setReportIssue(e.target.value)}
+                  value={issueReportText}
+                  onChange={(e) => setIssueReportText(e.target.value)}
                   required
                   rows={3}
-                  placeholder="e.g. Paper jam, out of toner, not responding..."
+                  placeholder="e.g. Paper jam, out of toner, not responding…"
                   className="w-full resize-none rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
                 />
               </div>
-
               <button
                 type="submit"
                 className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -307,7 +308,7 @@ export default function PrintersPage() {
         </div>
       )}
 
-      {/* ── Share credits tab ── */}
+      {/* ── SHARE CREDITS TAB ───────────────────────────────────────────── */}
       {activeTab === "share" && (
         <div className="max-w-lg">
           {shareSubmitted ? (
@@ -339,7 +340,6 @@ export default function PrintersPage() {
                   </div>
                 </div>
               </div>
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium">
                   Recipient NYU email
@@ -353,7 +353,6 @@ export default function PrintersPage() {
                   className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
                 />
               </div>
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium">
                   Pages to share
@@ -372,7 +371,6 @@ export default function PrintersPage() {
                   Each NYU student gets 200 free B&W pages per semester.
                 </p>
               </div>
-
               <button
                 type="submit"
                 className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -384,6 +382,93 @@ export default function PrintersPage() {
           )}
         </div>
       )}
+
+      {/* ── Report Status modal (triggered from map popup) ───────────── */}
+      {reportingPrinter && (
+        <ReportModal
+          printer={reportingPrinter}
+          onSubmit={handleStatusReport}
+          onClose={() => setReportingId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <svg width="10" height="14" viewBox="0 0 10 14">
+        <path
+          d="M5 0C2.24 0 0 2.24 0 5C0 8.75 5 14 5 14C5 14 10 8.75 10 5C10 2.24 7.76 0 5 0Z"
+          fill={color}
+        />
+      </svg>
+      {label}
+    </span>
+  );
+}
+
+function PrinterList({
+  printers,
+  onReport,
+}: {
+  printers: PrinterType[];
+  onReport: (id: string) => void;
+}) {
+  if (printers.length === 0) return null;
+
+  return (
+    <div className="shrink-0">
+      <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        {printers.length} printer{printers.length !== 1 ? "s" : ""} shown
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {printers.map((printer) => {
+          const stale = isStale(printer.last_updated);
+          const Icon = STATUS_ICON[printer.status];
+
+          return (
+            <div
+              key={printer.id}
+              className={`rounded-lg border p-3 ${STATUS_BG[printer.status]}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{printer.name}</p>
+                  <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{printer.building}</span>
+                  </p>
+                </div>
+                <Icon
+                  className={`h-4 w-4 shrink-0 ${STATUS_COLOR[printer.status]}`}
+                />
+              </div>
+
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {stale ? (
+                    <span className="text-orange-500">
+                      ⚠ {getRelativeTime(printer.last_updated)}
+                    </span>
+                  ) : (
+                    getRelativeTime(printer.last_updated)
+                  )}
+                </p>
+                <button
+                  onClick={() => onReport(printer.id)}
+                  className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                >
+                  Report
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
