@@ -59,7 +59,6 @@ const categories: Array<"All" | Category> = [
   "Electronics",
   "Other",
 ];
-import { Tag, BookOpen, Sofa, UtensilsCrossed, Plus } from "lucide-react";
 import { initialListings as listings } from "./listingsData";
 
 const conditionOptions: Array<"All" | Condition> = ["All", "Like New", "Good", "Fair", "N/A"];

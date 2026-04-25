@@ -18,7 +18,10 @@ export async function POST(req: NextRequest) {
 
     if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
       // Dynamic import to avoid SSR issues with pdf-parse
-      const pdfParse = (await import("pdf-parse")).default;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfParseModule: any = await import("pdf-parse");
+      const pdfParse: (b: Buffer) => Promise<{ text: string }> =
+        pdfParseModule.default ?? pdfParseModule;
       const parsed = await pdfParse(buffer);
       text = parsed.text;
     } else {

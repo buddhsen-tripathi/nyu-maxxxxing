@@ -10,6 +10,49 @@ function ciIncludes(haystack: string, needle: string) {
   return haystack.toLowerCase().includes(needle.toLowerCase());
 }
 
+// ── Hours parsing for "open now" logic ──
+// Handles "7 AM – 1 AM", "8 AM – 11 PM", and multi-segment strings like
+// "Mon-Fri 10 AM – 7 PM, Sat-Sun 11 AM – 7 PM" by trying each segment.
+function parseClockTime(s: string): number | null {
+  const m = s.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (!m) return null;
+  let h = parseInt(m[1]);
+  const min = m[2] ? parseInt(m[2]) : 0;
+  if (m[3].toUpperCase() === "PM" && h !== 12) h += 12;
+  if (m[3].toUpperCase() === "AM" && h === 12) h = 0;
+  return h + min / 60;
+}
+
+function nycNowDecimalHour(): number {
+  const nyc = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/New_York" })
+  );
+  return nyc.getHours() + nyc.getMinutes() / 60;
+}
+
+// "open" | "closed" | "unknown" — unknown when hours can't be parsed
+type OpenState = "open" | "closed" | "unknown";
+
+function isOpenNow(hoursStr: string, now: number): OpenState {
+  // Find every "X AM/PM – Y AM/PM" segment
+  const re =
+    /(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\s*[–\-—]\s*(\d{1,2}(?::\d{2})?\s*(?:AM|PM))/gi;
+  const matches = [...hoursStr.matchAll(re)];
+  if (matches.length === 0) return "unknown";
+
+  for (const m of matches) {
+    const start = parseClockTime(m[1]);
+    const end = parseClockTime(m[2]);
+    if (start === null || end === null) continue;
+    const open =
+      end < start
+        ? now >= start || now < end // crosses midnight
+        : now >= start && now < end;
+    if (open) return "open";
+  }
+  return "closed";
+}
+
 export const agentTools = {
   searchSpaces: tool({
     description:
@@ -45,6 +88,7 @@ export const agentTools = {
       if (results.length === 0)
         return { found: 0, message: "No study spaces matched. Try loosening filters." };
 
+      const now = nycNowDecimalHour();
       return {
         found: results.length,
         spaces: results.map((s) => ({
@@ -57,7 +101,62 @@ export const agentTools = {
           type: s.type,
           amenities: s.amenities,
           hours: s.hours,
+          openNow: isOpenNow(s.hours, now),
           capacity: s.capacity,
+          checkins: s.checkins,
+          bookingUrl: s.bookingUrl,
+          tip: s.tip,
+        })),
+      };
+    },
+  }),
+
+  findOpenSpacesNow: tool({
+    description:
+      "Return NYU study spaces that are open right now (NYC time). Use when the user asks 'what's open now', 'where can I study at this hour', or 'is X open'. Each result includes the hours string and an openNow flag.",
+    inputSchema: z.object({
+      noise: z
+        .enum(["silent", "quiet", "moderate", "loud"])
+        .optional()
+        .describe("Filter by maximum noise level"),
+      type: z
+        .enum(["library", "study_room", "lounge", "lab", "outdoor", "hidden_gem"])
+        .optional()
+        .describe("Filter by space type"),
+      limit: z.number().int().min(1).max(20).optional().describe("Max results (default 10)"),
+    }),
+    execute: async ({ noise, type, limit = 10 }) => {
+      const noiseRank: Record<string, number> = { silent: 0, quiet: 1, moderate: 2, loud: 3 };
+      const now = nycNowDecimalHour();
+
+      const results = initialSpaces
+        .filter((s) => {
+          if (noise && noiseRank[s.noise] > noiseRank[noise]) return false;
+          if (type && s.type !== type) return false;
+          return isOpenNow(s.hours, now) === "open";
+        })
+        .slice(0, limit);
+
+      if (results.length === 0)
+        return {
+          found: 0,
+          message: "Nothing matched as open right now. Try widening filters or check 24-hour spots like Bobst.",
+          nycHour: now.toFixed(2),
+        };
+
+      return {
+        found: results.length,
+        nycHour: now.toFixed(2),
+        spaces: results.map((s) => ({
+          id: s.id,
+          name: s.name,
+          building: s.building,
+          floor: s.floor,
+          noise: s.noise,
+          type: s.type,
+          hours: s.hours,
+          checkins: s.checkins,
+          bookingUrl: s.bookingUrl,
           tip: s.tip,
         })),
       };
@@ -190,11 +289,43 @@ export const agentTools = {
           noise: s.noise,
           amenities: s.amenities,
           hours: s.hours,
+          checkins: s.checkins,
+          bookingUrl: s.bookingUrl,
           tip: s.tip,
           submittedBy: s.submittedBy,
         })),
       };
     },
+  }),
+
+  nyuPrintInfo: tool({
+    description:
+      "Return authoritative facts about NYU's printing system — pricing, semester credit grants, mobile/wireless print options, and support resources. Call when the user asks how printing works, what it costs, how many free pages they get, or how to print from their phone. ALWAYS prefer this over guessing.",
+    inputSchema: z.object({}),
+    execute: async () => ({
+      pricing: {
+        bw_per_page: "$0.10",
+        color_per_page: "$0.75",
+        note: "Double-sided B&W counts as one page (still $0.10).",
+      },
+      printGrants: {
+        fall_spring: "$50/semester (≈ 500 free B&W pages)",
+        summer_jterm: "$25",
+        rollover: "Credits expire at end of term — no rollover.",
+        topup: "Currently no way to add money since Campus Cash ended Aug 2025.",
+        law_students: "NYU Law students get free B&W on Law printers.",
+      },
+      mobilePrint: {
+        webUpload: "https://mobileprint.nyu.edu",
+        emailBW: "mobileprint@nyu.edu",
+        emailColor: "mobileprint+color@nyu.edu",
+        howItWorks:
+          "Upload or email, then walk to any NYU print station and swipe your NYUCard to release the job. Jobs queue for 24 hours.",
+      },
+      liveStatus: "https://status.print.nyu.edu",
+      supportedFormats: "PDF, Word, Excel, PowerPoint, images (JPG/PNG), CSV, TXT",
+      tip: "Submitting via the web tool gives finer control (color, duplex). Use email-to-print when on mobile and in a hurry.",
+    }),
   }),
 
   findNearbyPrinters: tool({

@@ -531,7 +531,7 @@ export default function PartnerPage() {
                     <div className="text-sm leading-relaxed text-foreground">
                       {(selectedListing.participants || []).length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {(selectedListing.participants || []).map((participant, index) => (
+                          {(selectedListing.participants || []).map((participant: any, index: number) => (
                             <button
                               key={index}
                               onClick={() => setSelectedParticipant(participant)}

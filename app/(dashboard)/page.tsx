@@ -1,7 +1,8 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useState, useEffect, useRef } from "react";
+import { DefaultChatTransport } from "ai";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import {
   ArrowUp,
@@ -13,8 +14,12 @@ import {
   Loader2,
   Printer,
   MessageCircle,
+  Paperclip,
+  X,
+  FileText,
+  ImageIcon,
 } from "lucide-react";
-import { useChatReset } from "./chat-context";
+import { useChatReset, useUserContext } from "./chat-context";
 import { Markdown } from "../components/markdown";
 
 type NavTab = "spaces" | "exchange" | "mentoring" | "printers" | "home";
@@ -56,8 +61,23 @@ export default function ChatPage() {
 }
 
 function ChatInner() {
-  const { messages, sendMessage, status } = useChat();
+  const { getUserContext } = useUserContext();
+
+  // Build a transport that injects fresh userContext into every request.
+  // Using a function for `body` ensures we always send the current state
+  // (favorites/check-ins) at send time, not at hook init.
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: () => ({ userContext: getUserContext() }),
+      }),
+    [getUserContext]
+  );
+
+  const { messages, sendMessage, status } = useChat({ transport });
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isLoading = status === "submitted" || status === "streaming";
@@ -66,11 +86,54 @@ function ChatInner() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
-  function handleSend(text?: string) {
+  async function handleSend(text?: string) {
     const content = text ?? input.trim();
-    if (!content || isLoading) return;
-    sendMessage({ text: content });
+    if ((!content && files.length === 0) || isLoading) return;
+
+    // Convert File[] to FileUIPart[] (data URLs) for the AI SDK.
+    const fileParts =
+      files.length > 0
+        ? await Promise.all(
+            files.map(
+              (f) =>
+                new Promise<{
+                  type: "file";
+                  mediaType: string;
+                  url: string;
+                  filename: string;
+                }>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () =>
+                    resolve({
+                      type: "file",
+                      mediaType: f.type || "application/octet-stream",
+                      url: reader.result as string,
+                      filename: f.name,
+                    });
+                  reader.onerror = () => reject(reader.error);
+                  reader.readAsDataURL(f);
+                })
+            )
+          )
+        : undefined;
+
+    sendMessage({ text: content, files: fileParts });
     setInput("");
+    setFiles([]);
+  }
+
+  function addFiles(picked: FileList | null) {
+    if (!picked) return;
+    const next: File[] = [];
+    for (const f of Array.from(picked)) {
+      if (f.size > 10 * 1024 * 1024) continue; // 10 MB cap
+      next.push(f);
+    }
+    setFiles((prev) => [...prev, ...next]);
+  }
+
+  function removeFileAt(idx: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
   /* ── Empty state ── */
@@ -84,7 +147,9 @@ function ChatInner() {
 
           {/* Input */}
           <div className="mb-4 rounded-2xl border border-border bg-card shadow-sm">
+            <FileChipRow files={files} onRemove={removeFileAt} />
             <div className="flex items-end gap-2 p-3">
+              <AttachButton onPick={addFiles} />
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -100,7 +165,7 @@ function ChatInner() {
               />
               <button
                 onClick={() => handleSend()}
-                disabled={!input.trim() || isLoading}
+                disabled={(!input.trim() && files.length === 0) || isLoading}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
@@ -142,6 +207,21 @@ function ChatInner() {
               .map((p) => p.text)
               .join("");
 
+            // Image / file attachments echoed back from the user
+            const attachmentParts = msg.parts.flatMap((p) => {
+              const part = p as Record<string, unknown>;
+              const t = part.type as string | undefined;
+              if (t === "file" || t === "image") {
+                const url = (part.url ?? part.image ?? part.data) as string | undefined;
+                const mediaType = (part.mediaType ?? part.contentType ?? part.mimeType) as
+                  | string
+                  | undefined;
+                if (typeof url !== "string") return [];
+                return [{ url, mediaType: mediaType ?? "" }];
+              }
+              return [];
+            });
+
             const navButtons = msg.parts.flatMap((p) => {
               if (
                 p.type === "tool-navigateTo" &&
@@ -159,7 +239,8 @@ function ChatInner() {
             if (
               msg.role === "assistant" &&
               !textContent.trim() &&
-              navButtons.length === 0
+              navButtons.length === 0 &&
+              attachmentParts.length === 0
             ) {
               return null;
             }
@@ -174,6 +255,33 @@ function ChatInner() {
                 <div
                   className={`flex-1 ${msg.role === "user" ? "text-right" : ""}`}
                 >
+                  {attachmentParts.length > 0 && (
+                    <div
+                      className={`mb-2 flex flex-wrap gap-2 ${
+                        msg.role === "user" ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      {attachmentParts.map((a, i) =>
+                        a.mediaType.startsWith("image/") ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={i}
+                            src={a.url}
+                            alt="attachment"
+                            className="max-h-48 rounded-lg border border-border"
+                          />
+                        ) : (
+                          <div
+                            key={i}
+                            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span>Attachment</span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
                   {textContent.trim() && (
                     <div
                       className={`inline-block max-w-[85%] rounded-2xl px-4 py-3 ${
@@ -233,7 +341,9 @@ function ChatInner() {
       <div className="px-4 pb-6 pt-2">
         <div className="mx-auto max-w-2xl">
           <div className="rounded-2xl border border-border bg-card shadow-sm">
+            <FileChipRow files={files} onRemove={removeFileAt} />
             <div className="flex items-end gap-2 p-3">
+              <AttachButton onPick={addFiles} />
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -249,7 +359,7 @@ function ChatInner() {
               />
               <button
                 onClick={() => handleSend()}
-                disabled={!input.trim() || isLoading}
+                disabled={(!input.trim() && files.length === 0) || isLoading}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
@@ -262,6 +372,64 @@ function ChatInner() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Attachment helpers ──────────────────────────────────────────────────── */
+
+function AttachButton({ onPick }: { onPick: (files: FileList | null) => void }) {
+  return (
+    <label
+      className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      title="Attach a file"
+    >
+      <Paperclip className="h-4 w-4" />
+      <input
+        type="file"
+        multiple
+        accept="image/*,.pdf,.txt"
+        className="hidden"
+        onChange={(e) => {
+          onPick(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
+function FileChipRow({
+  files,
+  onRemove,
+}: {
+  files: File[];
+  onRemove: (idx: number) => void;
+}) {
+  if (files.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2 border-b border-border px-3 pt-3">
+      {files.map((f, i) => {
+        const isImage = f.type.startsWith("image/");
+        const Icon = isImage ? ImageIcon : FileText;
+        return (
+          <div
+            key={i}
+            className="flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-1 text-xs"
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="max-w-[160px] truncate">{f.name}</span>
+            <span className="text-muted-foreground">{(f.size / 1024).toFixed(0)} KB</span>
+            <button
+              type="button"
+              onClick={() => onRemove(i)}
+              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

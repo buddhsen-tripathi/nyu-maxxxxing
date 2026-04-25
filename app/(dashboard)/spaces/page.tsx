@@ -15,6 +15,7 @@ import {
 
 import { initialSpaces } from "./spacesData";
 import SubmitSpotModal from "./SubmitSpotModal";
+import { useUserContext } from "../chat-context";
 import type { StudySpace, SpaceFilter } from "./types";
 
 const SpacesMap = dynamic(() => import("./SpacesMap"), {
@@ -41,9 +42,22 @@ const NOISE_STYLE: Record<string, string> = {
 // ─── Page component ─────────────────────────────────────────────────────────
 
 export default function SpacesPage() {
-  const [spaces, setSpaces] = useState<StudySpace[]>(initialSpaces);
+  const [rawSpaces, setRawSpaces] = useState<StudySpace[]>(initialSpaces);
   const [filter, setFilter] = useState<SpaceFilter>("all");
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  // Favorites + check-in tracking persist across navigations / reloads via context
+  const { favoriteSpaces, toggleFavoriteSpace, recordCheckin } = useUserContext();
+
+  // Overlay context favorites onto the in-memory spaces so map/list see the right heart state
+  const spaces = useMemo(
+    () =>
+      rawSpaces.map((s) => ({
+        ...s,
+        favorite: favoriteSpaces.includes(s.id),
+      })),
+    [rawSpaces, favoriteSpaces]
+  );
 
   // ── Filter logic ──────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -79,13 +93,14 @@ export default function SpacesPage() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function handleCheckin(id: string) {
-    setSpaces((prev) =>
+    setRawSpaces((prev) =>
       prev.map((s) => (s.id === id ? { ...s, checkins: s.checkins + 1 } : s))
     );
+    recordCheckin(id);
   }
 
   function handleCheckout(id: string) {
-    setSpaces((prev) =>
+    setRawSpaces((prev) =>
       prev.map((s) =>
         s.id === id ? { ...s, checkins: Math.max(0, s.checkins - 1) } : s
       )
@@ -93,18 +108,16 @@ export default function SpacesPage() {
   }
 
   function handleToggleFavorite(id: string) {
-    setSpaces((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, favorite: !s.favorite } : s))
-    );
+    toggleFavoriteSpace(id);
   }
 
   function handleSubmitSpot(spot: StudySpace) {
-    setSpaces((prev) => [spot, ...prev]);
+    setRawSpaces((prev) => [spot, ...prev]);
     setShowSubmitModal(false);
   }
 
   // ── Counts ────────────────────────────────────────────────────────────────
-  const favCount = spaces.filter((s) => s.favorite).length;
+  const favCount = favoriteSpaces.length;
   const gemCount = spaces.filter((s) => s.type === "hidden_gem").length;
   const totalCheckins = spaces.reduce((sum, s) => sum + s.checkins, 0);
 
