@@ -105,6 +105,20 @@ export const printerReports = pgTable("printer_reports", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ── Community Notes ──
+export const communityNotes = pgTable("community_notes", {
+  id: serial("id").primaryKey(),
+  // "heads_up" | "working" | "suggestion" | "event"
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  authorName: text("author_name"),
+  location: text("location"),
+  upvotes: integer("upvotes").default(0).notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ── Partner Listings ──
 export const partners = pgTable("partners", {
   id: serial("id").primaryKey(),

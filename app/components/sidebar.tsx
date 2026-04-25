@@ -11,6 +11,7 @@ import {
   PanelLeft,
   SquarePen,
   Handshake,
+  StickyNote,
 } from "lucide-react";
 import { useChatReset } from "../(dashboard)/chat-context";
 
@@ -21,6 +22,7 @@ const navItems = [
   { label: "Mentoring", href: "/mentoring", icon: Users },
   { label: "Partner", href: "/partner", icon: Handshake },
   { label: "Printers", href: "/printers", icon: Printer },
+  { label: "Community", href: "/community", icon: StickyNote },
 ];
 
 export default function Sidebar({

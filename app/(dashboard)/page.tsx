@@ -170,7 +170,7 @@ function ChatInner() {
           {/* Input */}
           <div className="mb-4 rounded-2xl border border-border bg-card shadow-sm">
             <FileChipRow files={files} onRemove={removeFileAt} />
-            <div className="flex items-end gap-2 p-3">
+            <div className="flex items-end gap-2 p-2">
               <AttachButton onPick={addFiles} />
               <textarea
                 value={input}
@@ -183,12 +183,12 @@ function ChatInner() {
                 }}
                 placeholder="Ask anything about NYU campus life..."
                 rows={1}
-                className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                className="max-h-40 min-h-[32px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
               />
               <button
                 onClick={() => handleSend()}
                 disabled={(!input.trim() && files.length === 0) || isLoading}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -367,7 +367,7 @@ function ChatInner() {
         <div className="mx-auto max-w-2xl">
           <div className="rounded-2xl border border-border bg-card shadow-sm">
             <FileChipRow files={files} onRemove={removeFileAt} />
-            <div className="flex items-end gap-2 p-3">
+            <div className="flex items-end gap-2 p-2">
               <AttachButton onPick={addFiles} />
               <textarea
                 value={input}
@@ -380,12 +380,12 @@ function ChatInner() {
                 }}
                 placeholder="Ask anything..."
                 rows={1}
-                className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                className="max-h-40 min-h-[32px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
               />
               <button
                 onClick={() => handleSend()}
                 disabled={(!input.trim() && files.length === 0) || isLoading}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -406,7 +406,7 @@ function ChatInner() {
 function AttachButton({ onPick }: { onPick: (files: FileList | null) => void }) {
   return (
     <label
-      className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       title="Attach a file"
     >
       <Paperclip className="h-4 w-4" />

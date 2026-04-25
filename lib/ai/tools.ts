@@ -7,7 +7,14 @@ import { initialListings } from "@/app/(dashboard)/exchange/listingsData";
 import { initialMentors } from "@/app/(dashboard)/mentoring/mentorsData";
 import { isStale } from "@/app/(dashboard)/printers/utils";
 import { db } from "@/db";
-import { partners, mentors as mentorsTable, mentorSlots } from "@/db/schema";
+import {
+  partners,
+  mentors as mentorsTable,
+  mentorSlots,
+  printers as printersTable,
+  communityNotes,
+} from "@/db/schema";
+import { desc } from "drizzle-orm";
 
 function ciIncludes(haystack: string, needle: string) {
   return haystack.toLowerCase().includes(needle.toLowerCase());
@@ -15,6 +22,30 @@ function ciIncludes(haystack: string, needle: string) {
 
 function appBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+}
+
+// Common NYU landmark names → set of substrings that may appear in
+// printer.building / printer.name. Lets users say "Tandon", "Brooklyn",
+// "WSQ" etc. and still get hits.
+const LANDMARK_ALIASES: Record<string, string[]> = {
+  tandon: ["MetroTech", "Jay Street", "Dibner", "Rogers"],
+  brooklyn: ["MetroTech", "Jay Street", "Dibner", "Rogers"],
+  metrotech: ["MetroTech"],
+  wsq: ["Washington Sq", "LaGuardia", "Bobst", "Kimmel", "Silver", "Tisch", "Warren", "Vanderbilt"],
+  "washington square": ["Washington Sq", "LaGuardia", "Bobst", "Kimmel"],
+  manhattan: ["Washington Sq", "LaGuardia", "Bobst", "Kimmel", "Silver", "Tisch", "Lafayette", "Lipton", "Palladium"],
+};
+
+function landmarkMatches(printer: { building: string; name: string }, landmark: string): boolean {
+  const direct =
+    ciIncludes(printer.building, landmark) || ciIncludes(printer.name, landmark);
+  if (direct) return true;
+
+  const aliases = LANDMARK_ALIASES[landmark.toLowerCase()];
+  if (!aliases) return false;
+  return aliases.some(
+    (a) => ciIncludes(printer.building, a) || ciIncludes(printer.name, a)
+  );
 }
 
 // ── Hours parsing for "open now" logic ──
@@ -295,42 +326,85 @@ export const agentTools = {
 
   checkPrinters: tool({
     description:
-      "Check NYU print station status. Each printer has a status ('working', 'not_working', or 'unknown'), a building, floor, type (B&W or Color Laser), and when it was last reported. A printer is 'stale' if no one has reported in over 48 hours.",
+      "Check NYU print station status. Reads live status from the database. Each printer has a status ('working', 'not_working', or 'unknown'), a building, floor, type (B&W or Color Laser), and when it was last reported. A printer is 'stale' if no one has reported in over 48 hours. The `location` filter matches against BOTH building and name (case-insensitive) and understands common NYU landmarks like 'Tandon', 'Brooklyn', 'WSQ'.",
     inputSchema: z.object({
       status: z
         .enum(["working", "not_working", "unknown"])
         .optional()
         .describe("Filter by status"),
-      building: z.string().optional().describe("Match against building (case-insensitive substring)"),
+      location: z
+        .string()
+        .optional()
+        .describe(
+          "Filter by location (substring or landmark). Matches building AND name. Aliases: 'Tandon'/'Brooklyn'/'MetroTech', 'WSQ'/'Washington Square'/'Manhattan'."
+        ),
       colorOnly: z.boolean().optional().describe("Only return color laser printers"),
       limit: z.number().int().min(1).max(30).optional().describe("Max results (default 15)"),
     }),
-    execute: async ({ status, building, colorOnly, limit = 15 }) => {
-      let results = initialPrinters.filter((p) => {
-        if (status && p.status !== status) return false;
-        if (building && !ciIncludes(p.building, building)) return false;
-        if (colorOnly && !ciIncludes(p.printer_type, "color")) return false;
-        return true;
-      });
-
-      results = results.slice(0, limit);
-      if (results.length === 0)
-        return { found: 0, message: "No printers matched your filters." };
-
-      return {
-        found: results.length,
-        printers: results.map((p) => ({
-          id: p.id,
+    execute: async ({ status, location, colorOnly, limit = 15 }) => {
+      try {
+        const rows = await db.select().from(printersTable);
+        const mapped = rows.map((p) => ({
+          id: p.slug ?? p.id.toString(),
           name: p.name,
           building: p.building,
           floor: p.floor,
-          type: p.printer_type,
-          status: p.status,
-          lastUpdated: p.last_updated,
-          stale: isStale(p.last_updated),
-          lastReportedBy: p.last_reported_by,
-        })),
-      };
+          printer_type: p.printerType,
+          status: (p.status ?? "unknown") as "working" | "not_working" | "unknown",
+          last_updated: p.lastUpdated?.toISOString() ?? new Date(0).toISOString(),
+          last_reported_by: p.lastReportedBy ?? undefined,
+        }));
+
+        let results = mapped.filter((p) => {
+          if (status && p.status !== status) return false;
+          if (location && !landmarkMatches(p, location)) return false;
+          if (colorOnly && !ciIncludes(p.printer_type, "color")) return false;
+          return true;
+        });
+
+        results = results.slice(0, limit);
+        if (results.length === 0)
+          return { found: 0, message: "No printers matched your filters." };
+
+        return {
+          found: results.length,
+          printers: results.map((p) => ({
+            id: p.id,
+            name: p.name,
+            building: p.building,
+            floor: p.floor,
+            type: p.printer_type,
+            status: p.status,
+            lastUpdated: p.last_updated,
+            stale: isStale(p.last_updated),
+            lastReportedBy: p.last_reported_by,
+          })),
+        };
+      } catch {
+        // Fallback to seed data if DB unreachable
+        const fallback = initialPrinters
+          .filter((p) => {
+            if (status && p.status !== status) return false;
+            if (location && !landmarkMatches(p, location)) return false;
+            if (colorOnly && !ciIncludes(p.printer_type, "color")) return false;
+            return true;
+          })
+          .slice(0, limit);
+        return {
+          found: fallback.length,
+          printers: fallback.map((p) => ({
+            id: p.id,
+            name: p.name,
+            building: p.building,
+            floor: p.floor,
+            type: p.printer_type,
+            status: p.status,
+            lastUpdated: p.last_updated,
+            stale: isStale(p.last_updated),
+            lastReportedBy: p.last_reported_by,
+          })),
+        };
+      }
     },
   }),
 
@@ -399,11 +473,11 @@ export const agentTools = {
 
   findNearbyPrinters: tool({
     description:
-      "Find printers near a building or landmark. Use when a student says something like 'is there a printer near Bobst' or 'closest printer to Tandon'. Matches the building name (case-insensitive substring).",
+      "Find printers near a building or landmark. Reads live status from the database. Use when a student says something like 'is there a printer near Bobst' or 'closest printer to Tandon'. Matches building AND name; understands aliases like 'Tandon'/'Brooklyn'/'MetroTech', 'WSQ'/'Washington Square'/'Manhattan'.",
     inputSchema: z.object({
       landmark: z
         .string()
-        .describe("Building or landmark name to match against, e.g. 'Bobst', 'Tandon', 'Kimmel'"),
+        .describe("Building or landmark, e.g. 'Bobst', 'Tandon', 'Kimmel', 'Brooklyn'"),
       workingOnly: z
         .boolean()
         .optional()
@@ -411,32 +485,59 @@ export const agentTools = {
       limit: z.number().int().min(1).max(15).optional().describe("Max results (default 5)"),
     }),
     execute: async ({ landmark, workingOnly, limit = 5 }) => {
-      let results = initialPrinters.filter(
-        (p) =>
-          ciIncludes(p.building, landmark) ||
-          ciIncludes(p.name, landmark)
-      );
-      if (workingOnly) results = results.filter((p) => p.status === "working");
-      results = results.slice(0, limit);
-
-      if (results.length === 0)
-        return {
-          found: 0,
-          message: `No printers found near "${landmark}". Try a different landmark.`,
-        };
-
-      return {
-        found: results.length,
-        printers: results.map((p) => ({
-          id: p.id,
+      try {
+        const rows = await db.select().from(printersTable);
+        const mapped = rows.map((p) => ({
+          id: p.slug ?? p.id.toString(),
           name: p.name,
           building: p.building,
           floor: p.floor,
-          type: p.printer_type,
-          status: p.status,
-          stale: isStale(p.last_updated),
-        })),
-      };
+          printer_type: p.printerType,
+          status: (p.status ?? "unknown") as "working" | "not_working" | "unknown",
+          last_updated: p.lastUpdated?.toISOString() ?? new Date(0).toISOString(),
+        }));
+
+        let results = mapped.filter((p) => landmarkMatches(p, landmark));
+        if (workingOnly) results = results.filter((p) => p.status === "working");
+        results = results.slice(0, limit);
+
+        if (results.length === 0)
+          return {
+            found: 0,
+            message: `No printers found near "${landmark}". Try a more specific building name or 'WSQ' / 'Brooklyn'.`,
+          };
+
+        return {
+          found: results.length,
+          printers: results.map((p) => ({
+            id: p.id,
+            name: p.name,
+            building: p.building,
+            floor: p.floor,
+            type: p.printer_type,
+            status: p.status,
+            stale: isStale(p.last_updated),
+          })),
+        };
+      } catch {
+        let results = initialPrinters.filter((p) => landmarkMatches(p, landmark));
+        if (workingOnly) results = results.filter((p) => p.status === "working");
+        results = results.slice(0, limit);
+        if (results.length === 0)
+          return { found: 0, message: `No printers found near "${landmark}".` };
+        return {
+          found: results.length,
+          printers: results.map((p) => ({
+            id: p.id,
+            name: p.name,
+            building: p.building,
+            floor: p.floor,
+            type: p.printer_type,
+            status: p.status,
+            stale: isStale(p.last_updated),
+          })),
+        };
+      }
     },
   }),
 
@@ -474,7 +575,15 @@ export const agentTools = {
       "Suggest an in-app navigation. Call this AFTER answering the user when there's a natural follow-up action they'd want to take in the UI: viewing all results in a tab, submitting a hidden gem, listing an item for sale, reporting a printer issue, etc. The UI renders this as a clickable button.",
     inputSchema: z.object({
       tab: z
-        .enum(["spaces", "exchange", "mentoring", "printers", "home"])
+        .enum([
+          "spaces",
+          "exchange",
+          "mentoring",
+          "printers",
+          "partner",
+          "community",
+          "home",
+        ])
         .describe("Which tab to link to"),
       label: z
         .string()
@@ -490,6 +599,8 @@ export const agentTools = {
         exchange: { href: "/exchange", default: "Open Violet Exchange" },
         mentoring: { href: "/mentoring", default: "Open Peer Mentoring" },
         printers: { href: "/printers", default: "Open Printers" },
+        partner: { href: "/partner", default: "Open Partner Board" },
+        community: { href: "/community", default: "Open Community Feed" },
       };
       const m = map[tab];
       return { tab, href: m.href, label: label ?? m.default };
@@ -498,22 +609,50 @@ export const agentTools = {
 
   sharePrintCredits: tool({
     description:
-      "Send NYU print credits to another student via email. Use only when the user explicitly asks to share or send credits and provides the recipient email and number of pages. Confirm details with the user before calling.",
+      "Send NYU print credits to another student via email. Use only when the user explicitly asks to share or send credits and provides the recipient email and number of pages. If the user attached a file (PDF/image) and wants the recipient to print it, pass attachmentUrl using the URL from the [ATTACHED_IMAGE_URLS] marker in their message. Confirm details before calling.",
     inputSchema: z.object({
       recipientEmail: z.string().email().describe("Recipient's email address"),
       pages: z.number().int().min(1).max(500).describe("Number of pages to share"),
-      message: z.string().optional().describe("Optional personal message to include"),
+      message: z.string().optional().describe("Optional personal message"),
+      attachmentUrl: z
+        .string()
+        .optional()
+        .describe(
+          "Optional file to send. Use a URL from the [ATTACHED_IMAGE_URLS] marker (e.g. '/api/files/chat/uploads/123-doc.pdf')."
+        ),
+      attachmentFileName: z
+        .string()
+        .optional()
+        .describe("Pretty filename for the email attachment if attachmentUrl is set."),
     }),
-    execute: async ({ recipientEmail, pages, message }) => {
+    execute: async ({ recipientEmail, pages, message, attachmentUrl, attachmentFileName }) => {
       try {
         const { shareCreditsAction } = await import(
           "@/app/(dashboard)/printers/actions"
         );
-        const result = await shareCreditsAction({ recipientEmail, pages, message });
+
+        // Extract the AgentBucket key from /api/files/<key>
+        let attachment: { key: string; fileName: string } | undefined;
+        if (attachmentUrl) {
+          const match = attachmentUrl.match(/\/api\/files\/(.+)$/);
+          if (match) {
+            attachment = {
+              key: match[1],
+              fileName: attachmentFileName ?? match[1].split("/").pop() ?? "attachment",
+            };
+          }
+        }
+
+        const result = await shareCreditsAction({
+          recipientEmail,
+          pages,
+          message,
+          attachment,
+        });
         if (result.success) {
           return {
             success: true,
-            message: `Sent ${pages} print credit${pages !== 1 ? "s" : ""} to ${recipientEmail}.`,
+            message: `Sent ${pages} print credit${pages !== 1 ? "s" : ""} to ${recipientEmail}${attachment ? " with the attachment" : ""}.`,
           };
         }
         return { success: false, error: result.error ?? "Failed to send credits." };
@@ -936,6 +1075,369 @@ export const agentTools = {
         return {
           success: false,
           error: err instanceof Error ? err.message : "Could not post listing.",
+        };
+      }
+    },
+  }),
+
+  joinPartnerListing: tool({
+    description:
+      "Sign up to join an existing partner / group listing. Looks up the listing by id, then emails the organizer with the joiner's contact info. If the organizer's contact is a phone number (not an email), returns the contact so the agent can hand it back to the user instead. Use AFTER searchPartners to get the id, and AFTER collecting the joiner's name + email + optional short message.",
+    inputSchema: z.object({
+      listingId: z.number().int().positive().describe("Listing id from searchPartners"),
+      joinerName: z.string().min(1).describe("The user's display name"),
+      joinerEmail: z.string().email().describe("The user's email"),
+      joinerPhone: z.string().optional(),
+      message: z
+        .string()
+        .optional()
+        .describe("Short note to the organizer (e.g. 'I'm a beginner — happy to learn')"),
+    }),
+    execute: async ({ listingId, joinerName, joinerEmail, joinerPhone, message }) => {
+      try {
+        const [listing] = await db
+          .select()
+          .from(partners)
+          .where(eq(partners.id, listingId))
+          .limit(1);
+
+        if (!listing) return { success: false, error: "Partner listing not found." };
+        if (!listing.active)
+          return { success: false, error: "That listing is no longer active." };
+
+        const contactIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(listing.contact.trim());
+
+        if (!contactIsEmail) {
+          // Organizer left a phone number — agent should relay it to the user
+          return {
+            success: true,
+            mode: "contact-direct",
+            organizerName: listing.name,
+            organizerContact: listing.contact,
+            message: `Organizer prefers direct contact — reach ${listing.name} at ${listing.contact}.`,
+          };
+        }
+
+        // Otherwise email the organizer via Resend
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const fromAddress =
+          process.env.EMAIL_FROM ??
+          process.env.RESEND_FROM_EMAIL ??
+          "NYU Maxxxxing <onboarding@resend.dev>";
+
+        const { error } = await resend.emails.send({
+          from: fromAddress,
+          to: listing.contact,
+          replyTo: joinerEmail,
+          subject: `${joinerName} wants to join: ${listing.activity}`,
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
+                        padding:24px;border:1px solid #e5e7eb;border-radius:10px;">
+              <div style="text-align:center;margin-bottom:20px;">
+                <span style="background:#57068C;color:white;font-weight:700;font-size:18px;
+                             padding:6px 16px;border-radius:6px;letter-spacing:1px;">NYU</span>
+              </div>
+              <h2 style="color:#1a1a1a;font-size:20px;margin:0 0 8px;">
+                Someone wants to join your activity
+              </h2>
+              <p style="color:#4b5563;font-size:14px;margin:0 0 4px;">
+                <strong>Activity:</strong> ${listing.activity}
+              </p>
+              <p style="color:#4b5563;font-size:14px;margin:0 0 4px;">
+                <strong>Time:</strong> ${listing.time}
+              </p>
+              <p style="color:#4b5563;font-size:14px;margin:0 0 16px;">
+                <strong>Location:</strong> ${listing.location}
+              </p>
+
+              <div style="background:#f3f4f6;border-left:3px solid #57068C;
+                          padding:10px 14px;border-radius:4px;margin-bottom:16px;">
+                <p style="color:#374151;font-size:13px;margin:0 0 8px;">
+                  <strong>From:</strong> ${joinerName}
+                </p>
+                <p style="color:#374151;font-size:13px;margin:0 0 8px;">
+                  <strong>Email:</strong> ${joinerEmail}
+                </p>
+                ${
+                  joinerPhone
+                    ? `<p style="color:#374151;font-size:13px;margin:0;">
+                         <strong>Phone:</strong> ${joinerPhone}
+                       </p>`
+                    : ""
+                }
+              </div>
+
+              ${
+                message
+                  ? `<p style="color:#4b5563;font-size:14px;margin:0 0 6px;"><strong>Message:</strong></p>
+                     <p style="color:#374151;font-size:14px;margin:0;line-height:1.6;">${message}</p>`
+                  : ""
+              }
+
+              <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">
+                Reply to this email to coordinate. Sent via NYU Maxxxxing.
+              </p>
+            </div>
+          `,
+        });
+
+        if (error) return { success: false, error: error.message };
+
+        return {
+          success: true,
+          mode: "emailed",
+          organizerName: listing.name,
+          message: `Emailed ${listing.name} that you want to join "${listing.activity}". They'll reach out at ${joinerEmail}.`,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error:
+            err instanceof Error ? err.message : "Could not sign up for the listing.",
+        };
+      }
+    },
+  }),
+
+  updatePartnerListing: tool({
+    description:
+      "Update an existing partner-finder listing. Pass the listing id from searchPartners and any fields to change. Confirm with the user before calling.",
+    inputSchema: z.object({
+      id: z.number().int().positive(),
+      activity: z.string().min(1).optional(),
+      seeking: z.enum(["partner", "group"]).optional(),
+      description: z.string().min(1).optional(),
+      time: z.string().min(1).optional(),
+      location: z.string().min(1).optional(),
+      name: z.string().min(1).optional(),
+      contact: z.string().min(1).optional(),
+    }),
+    execute: async ({ id, ...patch }) => {
+      const updates = Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined)
+      );
+      if (Object.keys(updates).length === 0)
+        return { success: false, error: "No fields to update." };
+      try {
+        const [updated] = await db
+          .update(partners)
+          .set(updates)
+          .where(eq(partners.id, id))
+          .returning();
+        if (!updated) return { success: false, error: "Listing not found." };
+        return { success: true, message: `Updated partner listing #${id}.` };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Update failed.",
+        };
+      }
+    },
+  }),
+
+  deletePartnerListing: tool({
+    description:
+      "Soft-delete a partner-finder listing (marks it inactive). Use only when the user explicitly wants to take down their listing. Confirm by activity + organizer name first.",
+    inputSchema: z.object({
+      id: z.number().int().positive(),
+    }),
+    execute: async ({ id }) => {
+      try {
+        const [deleted] = await db
+          .update(partners)
+          .set({ active: false })
+          .where(eq(partners.id, id))
+          .returning();
+        if (!deleted) return { success: false, error: "Listing not found." };
+        return { success: true, message: `Removed partner listing #${id}.` };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Delete failed.",
+        };
+      }
+    },
+  }),
+
+  updateMentorProfile: tool({
+    description:
+      "Update an existing mentor profile (name, major, program, bio, topics, or available slots). Use when the user is a mentor and wants to update their card. The mentor id comes from searchMentors. Confirm before calling.",
+    inputSchema: z.object({
+      mentorId: z.number().int().positive(),
+      name: z.string().min(1).optional(),
+      major: z.string().min(1).optional(),
+      program: z.string().optional(),
+      bio: z.string().optional(),
+      topics: z.array(z.string().min(1)).optional(),
+      slots: z
+        .array(
+          z.object({
+            date: z.string().describe("ISO date e.g. '2026-04-28'"),
+            startTime: z.string().describe("e.g. '10:00 am'"),
+          })
+        )
+        .optional()
+        .describe("Replaces all existing UNBOOKED slots. Booked slots are preserved."),
+    }),
+    execute: async ({ mentorId, ...patch }) => {
+      try {
+        const res = await fetch(`${appBaseUrl()}/api/mentors/${mentorId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          return { success: false, error: body.error ?? `API returned ${res.status}` };
+        }
+        return { success: true, message: `Updated mentor #${mentorId}.` };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Update failed.",
+        };
+      }
+    },
+  }),
+
+  // ─── Community notes ─────────────────────────────────────────────────────
+
+  searchCommunityNotes: tool({
+    description:
+      "Search the Community feed — short notes from other students about campus life. Note types: 'heads_up' (alerts/warnings, e.g. 'AC broken in Bobst 4F'), 'working' (things that are functioning, e.g. 'Dibner printer fixed'), 'suggestion' (tips), 'event' (campus happenings). Each note has a title, body, optional location, author, upvotes, and createdAt. Use to answer 'what's going on at X?', 'any heads-up about Y?', etc.",
+    inputSchema: z.object({
+      type: z
+        .enum(["heads_up", "working", "suggestion", "event"])
+        .optional()
+        .describe("Filter by note type"),
+      topic: z
+        .string()
+        .optional()
+        .describe("Match against title OR body (case-insensitive substring)"),
+      location: z
+        .string()
+        .optional()
+        .describe("Match against location field (case-insensitive substring), e.g. 'Bobst', 'Tandon'"),
+      limit: z.number().int().min(1).max(30).optional().describe("Max notes (default 10)"),
+    }),
+    execute: async ({ type, topic, location, limit = 10 }) => {
+      try {
+        const rows = await db
+          .select()
+          .from(communityNotes)
+          .where(eq(communityNotes.active, true))
+          .orderBy(desc(communityNotes.createdAt));
+
+        let results = rows.filter((n) => {
+          if (type && n.type !== type) return false;
+          if (
+            topic &&
+            !ciIncludes(n.title, topic) &&
+            !ciIncludes(n.body, topic)
+          )
+            return false;
+          if (location && !(n.location && ciIncludes(n.location, location)))
+            return false;
+          return true;
+        });
+        results = results.slice(0, limit);
+
+        if (results.length === 0)
+          return { found: 0, message: "No community notes matched. Try a broader topic or drop the type filter." };
+
+        return {
+          found: results.length,
+          notes: results.map((n) => ({
+            id: n.id,
+            type: n.type,
+            title: n.title,
+            body: n.body,
+            location: n.location ?? undefined,
+            author: n.authorName ?? "Anonymous",
+            upvotes: n.upvotes,
+            postedAt: n.createdAt.toISOString(),
+          })),
+        };
+      } catch (err) {
+        return {
+          found: 0,
+          message: err instanceof Error ? `Notes lookup failed: ${err.message}` : "Could not load notes.",
+        };
+      }
+    },
+  }),
+
+  createCommunityNote: tool({
+    description:
+      "Post a new note to the Community feed. Use when a user wants to share an alert, status update, suggestion, or event. Pick the right type ('heads_up' / 'working' / 'suggestion' / 'event'). Confirm with the user before calling.",
+    inputSchema: z.object({
+      type: z.enum(["heads_up", "working", "suggestion", "event"]),
+      title: z.string().min(1).max(120).describe("Short, scannable title"),
+      body: z.string().min(1).max(2000).describe("1–4 sentences with the details"),
+      authorName: z
+        .string()
+        .max(60)
+        .optional()
+        .describe("Optional. Omit to post anonymously."),
+      location: z
+        .string()
+        .max(80)
+        .optional()
+        .describe("Optional, e.g. 'Bobst Library — 5th floor', 'Washington Square Park'"),
+    }),
+    execute: async (input) => {
+      try {
+        const res = await fetch(`${appBaseUrl()}/api/community-notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          return { success: false, error: body.error ?? `API returned ${res.status}` };
+        }
+        const data = (await res.json()) as { note: { id: number; title: string; type: string } };
+        return {
+          success: true,
+          noteId: data.note.id,
+          message: `Posted "${data.note.title}" as a ${data.note.type.replace("_", " ")} note.`,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Could not post note.",
+        };
+      }
+    },
+  }),
+
+  upvoteCommunityNote: tool({
+    description:
+      "Upvote a community note (one count per call — there's no auth, so use sparingly and only when the user explicitly says they want to upvote). Pass the noteId from searchCommunityNotes.",
+    inputSchema: z.object({
+      noteId: z.number().int().positive(),
+    }),
+    execute: async ({ noteId }) => {
+      try {
+        const res = await fetch(
+          `${appBaseUrl()}/api/community-notes/${noteId}/upvote`,
+          { method: "POST" }
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          return { success: false, error: body.error ?? `API returned ${res.status}` };
+        }
+        const data = (await res.json()) as { upvotes: number };
+        return {
+          success: true,
+          upvotes: data.upvotes,
+          message: `Upvoted note #${noteId} (now ${data.upvotes}).`,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Upvote failed.",
         };
       }
     },

@@ -1,7 +1,11 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(./node_modules/.bin/drizzle-kit push *)"
+    ],
     "additionalDirectories": [
-      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/files"
+      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/files",
+      "/Users/buddhsentripathi/Projects/nyu-maxxxxing/app/api/community-notes/[id]"
     ]
   }
 }
