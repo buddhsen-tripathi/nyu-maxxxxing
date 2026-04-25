@@ -12,8 +12,11 @@ import {
   Trash2,
   Pencil,
   Send,
+  ImagePlus,
+  Loader2,
 } from "lucide-react";
 import { SearchInput } from "@/app/components/search-input";
+import { uploadSubletImageAction } from "./actions";
 
 type GenderPref = "any" | "female" | "male" | "nonbinary";
 
@@ -72,6 +75,7 @@ const blankForm = {
   bathrooms: "1",
   furnished: false,
   genderPref: "any" as GenderPref,
+  imageUrls: [] as string[],
   listerName: "",
   contactEmail: "",
   contactPhone: "",
@@ -92,6 +96,7 @@ export default function SubletsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const [selected, setSelected] = useState<Sublet | null>(null);
@@ -178,12 +183,49 @@ export default function SubletsPage() {
       bathrooms: String(s.bathrooms),
       furnished: s.furnished,
       genderPref: s.genderPref,
+      imageUrls: s.imageUrls,
       listerName: s.listerName,
       contactEmail: s.contactEmail,
       contactPhone: s.contactPhone,
     });
     setFormError(null);
     setShowForm(true);
+  }
+
+  async function handleImageUpload(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadingImage(true);
+    try {
+      const uploads = await Promise.all(
+        Array.from(files).map(async (f) => {
+          const fd = new FormData();
+          fd.append("file", f);
+          return uploadSubletImageAction(fd);
+        }),
+      );
+      const newUrls = uploads
+        .filter(
+          (u): u is { success: true; result: { url: string; fileName: string; size: number } } =>
+            u.success,
+        )
+        .map((u) => u.result.url);
+      const failed = uploads.filter((u) => !u.success).length;
+      if (newUrls.length > 0) {
+        setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, ...newUrls] }));
+      }
+      if (failed > 0) {
+        setFormError(`${failed} image(s) failed to upload (likely too big or wrong type)`);
+      }
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  function removeImageAt(idx: number) {
+    setForm((prev) => ({
+      ...prev,
+      imageUrls: prev.imageUrls.filter((_, i) => i !== idx),
+    }));
   }
 
   async function handleSubmitForm(e: React.FormEvent) {
@@ -204,6 +246,7 @@ export default function SubletsPage() {
         bathrooms: Number(form.bathrooms),
         furnished: form.furnished,
         genderPref: form.genderPref,
+        imageUrls: form.imageUrls,
         listerName: form.listerName.trim(),
         contactEmail: form.contactEmail.trim(),
         contactPhone: form.contactPhone.trim() || undefined,
@@ -554,6 +597,63 @@ export default function SubletsPage() {
                   placeholder="Why you're subletting, what's nearby, building amenities, etc."
                   className="form-in resize-none"
                 />
+              </Field>
+
+              <Field
+                label={`Photos (${form.imageUrls.length}${form.imageUrls.length === 1 ? "" : ""})`}
+                className="md:col-span-2"
+              >
+                <div className="space-y-2">
+                  {form.imageUrls.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {form.imageUrls.map((url, i) => (
+                        <div
+                          key={`${url}-${i}`}
+                          className="group relative h-24 overflow-hidden rounded-md border border-border bg-secondary/30"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeImageAt(i)}
+                            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                            aria-label="Remove image"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                    {uploadingImage ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" />
+                    )}
+                    <span>
+                      {uploadingImage
+                        ? "Uploading…"
+                        : form.imageUrls.length === 0
+                        ? "Add photos (≤10 MB each, multiple OK)"
+                        : "Add more photos"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleImageUpload(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
               </Field>
 
               <Field label="Your name *">
