@@ -14,8 +14,12 @@ import {
 
 import { initialPrinters } from "./printerData";
 import ReportModal from "./ReportModal";
+<<<<<<< Updated upstream
 import { isStale, getRelativeTime } from "./PrinterMap";
 import { shareCreditsAction } from "./actions";
+=======
+import { isStale, getRelativeTime } from "./utils";
+>>>>>>> Stashed changes
 import type {
   Printer as PrinterType,
   PrinterFilter,

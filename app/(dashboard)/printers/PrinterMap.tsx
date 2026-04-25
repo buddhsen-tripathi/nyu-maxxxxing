@@ -4,25 +4,47 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
+<<<<<<< Updated upstream
 import type { Printer, PrinterStatus } from "./types";
 
 // ─── Helpers (also exported for use in page.tsx) ─────────────────────────────
+=======
+import { AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { Printer, PrinterStatus } from "./types";
 
-const STALE_HOURS = 48;
+import { isStale, getRelativeTime } from "./utils";
+>>>>>>> Stashed changes
 
-export function isStale(isoString: string): boolean {
-  return Date.now() - new Date(isoString).getTime() > STALE_HOURS * 3_600_000;
-}
+// ─── Theme-aware tiles ──────────────────────────────────────────────────────
 
-export function getRelativeTime(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diff / 60_000);
-  const hrs = Math.floor(diff / 3_600_000);
-  const days = Math.floor(diff / 86_400_000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${days}d ago`;
+const TILES = {
+  dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  },
+  light: {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  },
+};
+
+function useTheme(): "dark" | "light" {
+  const [theme, setTheme] = useState<"dark" | "light">("light");
+  useEffect(() => {
+    function check() {
+      setTheme(
+        document.documentElement.classList.contains("dark") ? "dark" : "light"
+      );
+    }
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return theme;
 }
 
 // NYU brand purple for working; red/amber for other statuses
@@ -83,6 +105,9 @@ const MAP_CENTER: [number, number] = [40.718, -73.993];
 const MAP_ZOOM = 13;
 
 export default function PrinterMap({ printers, onReportStatus }: Props) {
+  const theme = useTheme();
+  const tile = TILES[theme];
+
   return (
     <MapContainer
       center={MAP_CENTER}
@@ -90,10 +115,14 @@ export default function PrinterMap({ printers, onReportStatus }: Props) {
       scrollWheelZoom
       className="h-full w-full rounded-xl"
     >
+<<<<<<< Updated upstream
       {/* OpenStreetMap — no API key needed */}
+=======
+>>>>>>> Stashed changes
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        key={theme}
+        attribution={tile.attribution}
+        url={tile.url}
       />
 
       {/* Auto-cluster nearby flags when zoomed out */}
