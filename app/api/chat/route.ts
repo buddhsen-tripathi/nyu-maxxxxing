@@ -1,6 +1,7 @@
 import { streamText, stepCountIs, convertToModelMessages } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { agentTools } from "@/lib/ai/tools";
+import { agentLog, newRequestId } from "@/lib/ai/logger";
 import { initialSpaces } from "@/app/(dashboard)/spaces/spacesData";
 
 const openrouter = createOpenAI({
@@ -169,10 +170,36 @@ User: [attaches photo of a calculator] "Sell this for $40"
 > Once you confirm, I'll list it for $40 in Electronics.`;
 
 export async function POST(req: Request) {
+  const reqId = newRequestId();
+  const start = Date.now();
+
   const { messages, userContext } = (await req.json()) as {
     messages: Parameters<typeof convertToModelMessages>[0];
     userContext?: UserContext;
   };
+
+  // ── Log incoming query ──
+  const latestUser = [...messages].reverse().find((m) => m.role === "user");
+  if (latestUser) {
+    const parts = latestUser.parts as Array<Record<string, unknown>>;
+    const text = parts
+      .filter((p) => p.type === "text")
+      .map((p) => (typeof p.text === "string" ? p.text : ""))
+      .join("")
+      .replace(/\n*\[ATTACHED_IMAGE_URLS\]:[\s\S]*$/, "")
+      .trim();
+    const fileCount = parts.filter(
+      (p) => p.type === "file" || p.type === "image",
+    ).length;
+
+    agentLog(reqId, "query", {
+      text,
+      fileCount,
+      tab: userContext?.pathname,
+      favoriteCount: userContext?.favoriteSpaces?.length ?? 0,
+      checkinCount: userContext?.recentCheckins?.length ?? 0,
+    });
+  }
 
   const system = SYSTEM_PROMPT + buildContextBlock(userContext);
 
@@ -182,6 +209,43 @@ export async function POST(req: Request) {
     messages: await convertToModelMessages(messages),
     tools: agentTools,
     stopWhen: stepCountIs(5),
+    onStepFinish: (step) => {
+      // Log each tool call (action) and its result
+      const toolCalls = (step as { toolCalls?: Array<{ toolName: string; input?: unknown; args?: unknown }> }).toolCalls ?? [];
+      const toolResults = (step as { toolResults?: Array<{ toolName: string; output?: unknown; result?: unknown }> }).toolResults ?? [];
+
+      for (const call of toolCalls) {
+        agentLog(reqId, `action:${call.toolName}`, {
+          input: call.input ?? call.args,
+        });
+      }
+      for (const r of toolResults) {
+        agentLog(reqId, `action-result:${r.toolName}`, {
+          output: r.output ?? r.result,
+        });
+      }
+    },
+    onFinish: (event) => {
+      const e = event as {
+        text?: string;
+        finishReason?: string;
+        usage?: Record<string, unknown>;
+        toolCalls?: unknown[];
+      };
+      agentLog(reqId, "response", {
+        text: e.text ?? "",
+        finishReason: e.finishReason,
+        toolCallCount: e.toolCalls?.length ?? 0,
+        usage: e.usage,
+        durationMs: Date.now() - start,
+      });
+    },
+    onError: (event) => {
+      const err = (event as { error?: unknown }).error;
+      agentLog(reqId, "error", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    },
   });
 
   return result.toUIMessageStreamResponse();
