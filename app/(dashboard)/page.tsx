@@ -20,6 +20,7 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { useChatReset, useUserContext } from "./chat-context";
+import { uploadChatImageAction } from "./chat-actions";
 import { Markdown } from "../components/markdown";
 
 type NavTab = "spaces" | "exchange" | "mentoring" | "printers" | "home";
@@ -90,7 +91,7 @@ function ChatInner() {
     const content = text ?? input.trim();
     if ((!content && files.length === 0) || isLoading) return;
 
-    // Convert File[] to FileUIPart[] (data URLs) for the AI SDK.
+    // Convert File[] to FileUIPart[] (data URLs) so the model can SEE them.
     const fileParts =
       files.length > 0
         ? await Promise.all(
@@ -117,7 +118,28 @@ function ChatInner() {
           )
         : undefined;
 
-    sendMessage({ text: content, files: fileParts });
+    // For image attachments, ALSO upload to AgentBucket in parallel so the
+    // agent has a real URL it can pass to tools like createExchangeListing.
+    let messageText = content;
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length > 0) {
+      const uploads = await Promise.all(
+        imageFiles.map(async (f) => {
+          const fd = new FormData();
+          fd.append("file", f);
+          return uploadChatImageAction(fd);
+        })
+      );
+      const urls = uploads
+        .filter((u): u is { success: true; result: { fileName: string; publicUrl: string } } => u.success)
+        .map((u) => u.result.publicUrl);
+      if (urls.length > 0) {
+        const marker = `\n\n[ATTACHED_IMAGE_URLS]: ${urls.join(", ")}`;
+        messageText = (content + marker).trim();
+      }
+    }
+
+    sendMessage({ text: messageText, files: fileParts });
     setInput("");
     setFiles([]);
   }
@@ -205,7 +227,10 @@ function ChatInner() {
             const textContent = msg.parts
               .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
               .map((p) => p.text)
-              .join("");
+              .join("")
+              // Strip the internal marker we use to ferry image URLs to the agent
+              .replace(/\n*\[ATTACHED_IMAGE_URLS\]:[\s\S]*$/, "")
+              .trim();
 
             // Image / file attachments echoed back from the user
             const attachmentParts = msg.parts.flatMap((p) => {
