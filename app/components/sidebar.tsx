@@ -7,132 +7,94 @@ import {
   MapPin,
   ArrowLeftRight,
   Users,
-  GraduationCap,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
+  Printer,
+  PanelLeft,
+  SquarePen,
 } from "lucide-react";
-import { useState } from "react";
 
 const navItems = [
-  {
-    label: "Chat",
-    href: "/",
-    icon: MessageCircle,
-    description: "AI Assistant",
-  },
-  {
-    label: "Spaces",
-    href: "/spaces",
-    icon: MapPin,
-    description: "Find study spots",
-  },
-  {
-    label: "Exchange",
-    href: "/exchange",
-    icon: ArrowLeftRight,
-    description: "Buy, sell, trade",
-  },
-  {
-    label: "Mentoring",
-    href: "/mentoring",
-    icon: Users,
-    description: "Peer connections",
-  },
+  { label: "Chat", href: "/", icon: MessageCircle },
+  { label: "Spaces", href: "/spaces", icon: MapPin },
+  { label: "Exchange", href: "/exchange", icon: ArrowLeftRight },
+  { label: "Mentoring", href: "/mentoring", icon: Users },
+  { label: "Printers", href: "/printers", icon: Printer },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside
-      className={`flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 ${
-        collapsed ? "w-16" : "w-64"
-      }`}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-sidebar-border px-4 py-5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-          <GraduationCap className="h-5 w-5" />
-        </div>
-        {!collapsed && (
-          <div className="overflow-hidden">
-            <h1 className="truncate text-sm font-semibold tracking-tight">
-              NYU Maxxxxing
-            </h1>
-            <p className="truncate text-xs text-muted-foreground">
-              Campus companion
-            </p>
-          </div>
-        )}
-      </div>
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/20 md:hidden"
+          onClick={onToggle}
+        />
+      )}
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-2 py-3">
-        {navItems.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-              } ${collapsed ? "justify-center" : ""}`}
-              title={collapsed ? item.label : undefined}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-sidebar text-sidebar-foreground
+          transition-transform duration-200 ease-in-out
+          md:relative md:z-auto md:transition-[width,opacity] md:duration-200
+          ${open
+            ? "translate-x-0 md:translate-x-0 md:w-64 md:opacity-100"
+            : "-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden"
+          }
+        `}
+      >
+        <div className="flex w-64 min-w-[16rem] flex-col h-full">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-3 py-3">
+            <button
+              onClick={onToggle}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent"
+              title="Close sidebar"
             >
-              <item.icon className="h-4.5 w-4.5 shrink-0" />
-              {!collapsed && (
-                <div className="overflow-hidden">
-                  <span className="block truncate">{item.label}</span>
-                  {!isActive && (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {item.description}
-                    </span>
-                  )}
-                </div>
-              )}
+              <PanelLeft className="h-5 w-5" />
+            </button>
+            <Link
+              href="/"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent"
+              title="New chat"
+            >
+              <SquarePen className="h-5 w-5" />
             </Link>
-          );
-        })}
-      </nav>
+          </div>
 
-      {/* Footer */}
-      <div className="border-t border-sidebar-border px-2 py-3">
-        <Link
-          href="/settings"
-          className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground ${
-            collapsed ? "justify-center" : ""
-          }`}
-          title={collapsed ? "Settings" : undefined}
-        >
-          <Settings className="h-4.5 w-4.5 shrink-0" />
-          {!collapsed && <span>Settings</span>}
-        </Link>
+          {/* Navigation */}
+          <nav className="flex-1 space-y-0.5 px-2 py-1">
+            {navItems.map((item) => {
+              const isActive =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(item.href);
 
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className={`mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground ${
-            collapsed ? "justify-center" : ""
-          }`}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? (
-            <ChevronRight className="h-4.5 w-4.5 shrink-0" />
-          ) : (
-            <>
-              <ChevronLeft className="h-4.5 w-4.5 shrink-0" />
-              <span>Collapse</span>
-            </>
-          )}
-        </button>
-      </div>
-    </aside>
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                    isActive
+                      ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  }`}
+                >
+                  <item.icon className="h-[18px] w-[18px] shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      </aside>
+    </>
   );
 }
