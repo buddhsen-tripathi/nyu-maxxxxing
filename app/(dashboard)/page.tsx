@@ -1,19 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useChat } from "@ai-sdk/react";
+import { useState, useEffect, useRef } from "react";
 import {
   ArrowUp,
   MapPin,
   ArrowLeftRight,
   Users,
   GraduationCap,
+  Loader2,
 } from "lucide-react";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
 
 const suggestions = [
   {
@@ -34,9 +30,11 @@ const suggestions = [
 ];
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { messages, sendMessage, status } = useChat();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const isLoading = status === "submitted" || status === "streaming";
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -44,22 +42,8 @@ export default function ChatPage() {
 
   function handleSend(text?: string) {
     const content = text ?? input.trim();
-    if (!content) return;
-
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content,
-    };
-
-    const assistantMsg: Message = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content:
-        "This is a template response. Connect your AI backend to make this chat functional!",
-    };
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    if (!content || isLoading) return;
+    sendMessage({ text: content });
     setInput("");
   }
 
@@ -90,10 +74,14 @@ export default function ChatPage() {
               />
               <button
                 onClick={() => handleSend()}
-                disabled={!input.trim()}
+                disabled={!input.trim() || isLoading}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                <ArrowUp className="h-4 w-4" />
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
               </button>
             </div>
           </div>
@@ -122,28 +110,59 @@ export default function ChatPage() {
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
-          {messages.map((msg) => (
-            <div key={msg.id} className="flex gap-3">
-              {msg.role === "assistant" && (
+          {messages.map((msg) => {
+            // Skip tool-only assistant messages with no text
+            if (
+              msg.role === "assistant" &&
+              !msg.parts.some((p) => p.type === "text" && p.text.trim())
+            ) {
+              return null;
+            }
+
+            const textContent = msg.parts
+              .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+              .map((p) => p.text)
+              .join("");
+
+            if (!textContent.trim()) return null;
+
+            return (
+              <div key={msg.id} className="flex gap-3">
+                {msg.role === "assistant" && (
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border">
+                    <GraduationCap className="h-4 w-4 text-foreground/70" />
+                  </div>
+                )}
+                <div
+                  className={`flex-1 ${msg.role === "user" ? "text-right" : ""}`}
+                >
+                  <div
+                    className={`inline-block max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                      msg.role === "user"
+                        ? "bg-secondary text-secondary-foreground"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {textContent}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {isLoading &&
+            !messages[messages.length - 1]?.parts.some(
+              (p) => p.type === "text" && p.text.trim()
+            ) && (
+              <div className="flex gap-3">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border">
                   <GraduationCap className="h-4 w-4 text-foreground/70" />
                 </div>
-              )}
-              <div
-                className={`flex-1 ${msg.role === "user" ? "text-right" : ""}`}
-              >
-                <div
-                  className={`inline-block max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-secondary text-secondary-foreground"
-                      : "text-foreground"
-                  }`}
-                >
-                  {msg.content}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Thinking...
                 </div>
               </div>
-            </div>
-          ))}
+            )}
         </div>
       </div>
 
@@ -167,10 +186,14 @@ export default function ChatPage() {
               />
               <button
                 onClick={() => handleSend()}
-                disabled={!input.trim()}
+                disabled={!input.trim() || isLoading}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                <ArrowUp className="h-4 w-4" />
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
               </button>
             </div>
           </div>

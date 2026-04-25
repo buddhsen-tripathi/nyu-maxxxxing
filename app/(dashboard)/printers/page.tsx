@@ -22,6 +22,8 @@ import {
   reportPrinterStatusAction,
   shareCreditsAction,
 } from "./actions";
+import { shareCreditsAction } from "./actions";
+import { isStale, getRelativeTime } from "./utils";
 import type {
   Printer as PrinterType,
   PrinterFilter,

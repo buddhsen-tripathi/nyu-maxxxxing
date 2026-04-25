@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PanelLeft, SquarePen } from "lucide-react";
 import Link from "next/link";
 import Sidebar from "../components/sidebar";
+import ThemeToggle from "../components/theme-toggle";
 
 export default function DashboardLayout({
   children,
@@ -46,6 +47,8 @@ export default function DashboardLayout({
 
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+
+      <ThemeToggle />
     </div>
   );
 }

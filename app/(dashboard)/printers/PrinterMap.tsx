@@ -5,7 +5,25 @@ import { useEffect } from "react";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { useEffect, useState } from "react";
 import type { Printer, PrinterStatus } from "./types";
+import { isStale, getRelativeTime } from "./utils";
+
+// ─── Theme-aware tiles ──────────────────────────────────────────────────────
+
+const TILES = {
+  dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  },
+  light: {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  },
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -24,6 +42,20 @@ export function getRelativeTime(isoString: string): string {
   if (mins < 60) return `${mins}m ago`;
   if (hrs < 24) return `${hrs}h ago`;
   return `${days}d ago`;
+function useTheme(): "dark" | "light" {
+  const [theme, setTheme] = useState<"dark" | "light">("light");
+  useEffect(() => {
+    function check() {
+      setTheme(
+        document.documentElement.classList.contains("dark") ? "dark" : "light"
+      );
+    }
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return theme;
 }
 
 // Status: NYU purple = working, red = broken, amber = unknown
@@ -124,9 +156,13 @@ interface Props {
 }
 
 const MAP_CENTER: [number, number] = [40.718, -73.993];
-const MAP_ZOOM = 13;
+const MAP_ZOOM = 14;
 
 export default function PrinterMap({ printers, flyTarget, onReportStatus }: Props) {
+export default function PrinterMap({ printers, onReportStatus }: Props) {
+  const theme = useTheme();
+  const tile = TILES[theme];
+
   return (
     <MapContainer
       center={MAP_CENTER}
@@ -135,8 +171,9 @@ export default function PrinterMap({ printers, flyTarget, onReportStatus }: Prop
       className="h-full w-full rounded-xl"
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        key={theme}
+        attribution={tile.attribution}
+        url={tile.url}
       />
 
       {/* Pan + zoom to search result */}
@@ -163,6 +200,24 @@ export default function PrinterMap({ printers, flyTarget, onReportStatus }: Prop
           );
         })}
       </MarkerClusterGroup>
+      {printers.map((printer) => {
+        const stale = isStale(printer.last_updated);
+        return (
+          <Marker
+            key={printer.id}
+            position={[printer.latitude, printer.longitude]}
+            icon={makeFlagIcon(printer.status, stale)}
+          >
+            <Popup minWidth={210} maxWidth={250}>
+              <PopupCard
+                printer={printer}
+                stale={stale}
+                onReport={() => onReportStatus(printer.id)}
+              />
+            </Popup>
+          </Marker>
+        );
+      })}
     </MapContainer>
   );
 }
