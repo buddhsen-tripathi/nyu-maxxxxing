@@ -15,8 +15,8 @@ export const spaces = pgTable("spaces", {
   building: text("building").notNull(),
   capacity: text("capacity"),
   hours: text("hours"),
-  noise: text("noise").notNull(), // "Silent" | "Low" | "Moderate" | "Loud"
-  tags: text("tags").array().notNull(), // ["Quiet", "Wi-Fi", "Power Outlets", ...]
+  noise: text("noise").notNull(),
+  tags: text("tags").array().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -25,9 +25,9 @@ export const listings = pgTable("listings", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
-  category: text("category").notNull(), // "Textbooks" | "Furniture" | "Meal Swipes" | "Electronics" | "Other"
-  price: text("price").notNull(), // "Free", "$35", etc.
-  condition: text("condition"), // "Like New" | "Good" | "Fair" | "N/A"
+  category: text("category").notNull(),
+  price: text("price").notNull(),
+  condition: text("condition"),
   sellerName: text("seller_name").notNull(),
   contactEmail: text("contact_email"),
   active: boolean("active").default(true).notNull(),
@@ -50,22 +50,29 @@ export const mentors = pgTable("mentors", {
 // ── Printers ──
 export const printers = pgTable("printers", {
   id: serial("id").primaryKey(),
+  // Human-readable stable key used as the UI id (e.g. "kimmel", "bobst")
+  slug: text("slug").unique(),
   name: text("name").notNull(),
   building: text("building").notNull(),
   floor: text("floor").notNull(),
-  type: text("type").notNull(), // "B&W Laser" | "Color Laser"
-  status: text("status").default("online").notNull(), // "online" | "offline" | "issue"
-  issue: text("issue"),
+  printerType: text("printer_type").notNull().default("B&W Laser"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  // "working" | "not_working" | "unknown"
+  status: text("status").default("unknown").notNull(),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  lastReportedBy: text("last_reported_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// ── Printer Issue Reports (crowd-sourced) ──
+// ── Printer Status Reports (crowd-sourced) ──
 export const printerReports = pgTable("printer_reports", {
   id: serial("id").primaryKey(),
   printerId: integer("printer_id")
     .references(() => printers.id)
     .notNull(),
-  issue: text("issue").notNull(),
-  resolved: boolean("resolved").default(false).notNull(),
+  // "working" | "not_working"
+  status: text("status").notNull(),
+  comment: text("comment"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
