@@ -1986,6 +1986,7 @@ export const agentTools = {
             bedrooms: s.bedrooms,
             bathrooms: s.bathrooms,
             furnished: s.furnished,
+            imageUrls: s.imageUrls ?? [],
             genderPref: s.genderPref ?? "any",
             listerName: s.listerName,
             contactEmail: s.contactEmail,

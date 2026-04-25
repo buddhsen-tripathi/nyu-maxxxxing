@@ -26,6 +26,7 @@ import {
 import { useChatReset, useUserContext, CHAT_MESSAGES_KEY } from "./chat-context";
 import { uploadChatImageAction } from "./chat-actions";
 import { Markdown } from "../components/markdown";
+import { SubletCardScroll, ListingCardScroll } from "../components/listing-cards";
 
 type NavTab =
   | "spaces"
@@ -346,12 +347,51 @@ function ChatInner() {
               return [];
             });
 
-            // Skip empty assistant messages (no text + no nav/book buttons)
+            // Card-style results from searchSublets / searchListings tool calls
+            const subletResults = msg.parts.flatMap((p) => {
+              if (
+                p.type === "tool-searchSublets" &&
+                p.state === "output-available" &&
+                p.output &&
+                typeof p.output === "object"
+              ) {
+                const out = p.output as {
+                  found?: number;
+                  sublets?: Array<Record<string, unknown>>;
+                };
+                if (out.found && Array.isArray(out.sublets) && out.sublets.length > 0) {
+                  return [{ id: p.toolCallId, sublets: out.sublets }];
+                }
+              }
+              return [];
+            });
+
+            const listingResults = msg.parts.flatMap((p) => {
+              if (
+                p.type === "tool-searchListings" &&
+                p.state === "output-available" &&
+                p.output &&
+                typeof p.output === "object"
+              ) {
+                const out = p.output as {
+                  found?: number;
+                  listings?: Array<Record<string, unknown>>;
+                };
+                if (out.found && Array.isArray(out.listings) && out.listings.length > 0) {
+                  return [{ id: p.toolCallId, listings: out.listings }];
+                }
+              }
+              return [];
+            });
+
+            // Skip empty assistant messages (no text + no nav/book buttons + no cards)
             if (
               msg.role === "assistant" &&
               !textContent.trim() &&
               navButtons.length === 0 &&
               bookButtons.length === 0 &&
+              subletResults.length === 0 &&
+              listingResults.length === 0 &&
               attachmentParts.length === 0
             ) {
               return null;
@@ -409,6 +449,14 @@ function ChatInner() {
                       )}
                     </div>
                   )}
+
+                  {subletResults.map((r) => (
+                    <SubletCardScroll key={r.id} sublets={r.sublets as never[]} />
+                  ))}
+
+                  {listingResults.map((r) => (
+                    <ListingCardScroll key={r.id} listings={r.listings as never[]} />
+                  ))}
 
                   {(navButtons.length > 0 || bookButtons.length > 0) && (
                     <div className="mt-2 flex flex-wrap gap-2">
