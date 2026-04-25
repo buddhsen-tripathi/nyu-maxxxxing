@@ -9,11 +9,13 @@ import {
   XCircle,
   AlertTriangle,
   MapPin,
+  Loader2,
 } from "lucide-react";
 
 import { initialPrinters } from "./printerData";
 import ReportModal from "./ReportModal";
 import { isStale, getRelativeTime } from "./PrinterMap";
+import { shareCreditsAction } from "./actions";
 import type {
   Printer as PrinterType,
   PrinterFilter,
@@ -21,7 +23,7 @@ import type {
   StatusReport,
 } from "./types";
 
-// Dynamically import the map so Leaflet (which needs `window`) never runs SSR
+// Map is client-only — Leaflet needs `window`
 const PrinterMap = dynamic(() => import("./PrinterMap"), {
   ssr: false,
   loading: () => (
@@ -31,18 +33,21 @@ const PrinterMap = dynamic(() => import("./PrinterMap"), {
   ),
 });
 
-// ─── Status helpers ──────────────────────────────────────────────────────────
+// ─── Status display config ───────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<PrinterStatus, string> = {
-  working: "text-green-600",
+  working: "text-[#57068C]",
   not_working: "text-red-500",
   unknown: "text-amber-500",
 };
 
 const STATUS_BG: Record<PrinterStatus, string> = {
-  working: "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900",
-  not_working: "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900",
-  unknown: "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900",
+  working:
+    "bg-purple-50 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900",
+  not_working:
+    "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900",
+  unknown:
+    "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900",
 };
 
 const STATUS_ICON: Record<PrinterStatus, typeof CheckCircle2> = {
@@ -57,39 +62,44 @@ type Tab = "map" | "report" | "share";
 
 const tabs: { key: Tab; label: string }[] = [
   { key: "map", label: "Find Printers" },
-  { key: "report", label: "Report Issue" },
+  { key: "report", label: "Report Status" },
   { key: "share", label: "Share Credits" },
 ];
 
-// ─── Page component ──────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function PrintersPage() {
   const [activeTab, setActiveTab] = useState<Tab>("map");
 
-  // Printer state – in production this would come from an API / SWR / React Query
+  // Single source of truth for all printer state — map, list, and report form all read from here
   const [printers, setPrinters] = useState<PrinterType[]>(initialPrinters);
 
   // Map filter
   const [filter, setFilter] = useState<PrinterFilter>("all");
 
-  // Report modal
+  // Report modal (triggered from map popup)
   const [reportingId, setReportingId] = useState<string | null>(null);
   const reportingPrinter = useMemo(
     () => printers.find((p) => p.id === reportingId) ?? null,
     [printers, reportingId]
   );
 
-  // Legacy "Report Issue" tab state (kept intact)
-  const [issueReportPrinter, setIssueReportPrinter] = useState("");
-  const [issueReportText, setIssueReportText] = useState("");
-  const [issueSubmitted, setIssueSubmitted] = useState(false);
+  // ── Report Status tab state ───────────────────────────────────────────────
+  const [reportPrinterId, setReportPrinterId] = useState("");
+  const [reportStatus, setReportStatus] = useState<PrinterStatus | "">("");
+  const [reportComment, setReportComment] = useState("");
+  const [reportDone, setReportDone] = useState(false);
 
-  // "Share Credits" tab state (kept intact)
-  const [shareAmount, setShareAmount] = useState("");
+  // ── Share Credits tab state ───────────────────────────────────────────────
   const [shareRecipient, setShareRecipient] = useState("");
-  const [shareSubmitted, setShareSubmitted] = useState(false);
+  const [sharePages, setSharePages] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareResult, setShareResult] = useState<
+    { success: boolean; error?: string } | null
+  >(null);
 
-  // ── Filter logic ──────────────────────────────────────────────────────────
+  // ── Filter ────────────────────────────────────────────────────────────────
   const filteredPrinters = useMemo(() => {
     if (filter === "not_working")
       return printers.filter((p) => p.status === "not_working");
@@ -100,64 +110,88 @@ export default function PrintersPage() {
     return printers;
   }, [printers, filter]);
 
-  // ── Status update (called from ReportModal) ───────────────────────────────
-  function handleStatusReport(report: StatusReport) {
-    if (!reportingId) return;
+  // ── Stat counts ───────────────────────────────────────────────────────────
+  const counts = useMemo(
+    () => ({
+      working: printers.filter((p) => p.status === "working").length,
+      not_working: printers.filter((p) => p.status === "not_working").length,
+      unverified: printers.filter(
+        (p) => p.status === "unknown" || isStale(p.last_updated)
+      ).length,
+    }),
+    [printers]
+  );
+
+  // ── Core status updater — used by both modal and report tab ───────────────
+  function applyStatusReport(
+    printerId: string,
+    status: PrinterStatus,
+    _comment?: string
+  ) {
     setPrinters((prev) =>
       prev.map((p) =>
-        p.id === reportingId
+        p.id === printerId
           ? {
               ...p,
-              status: report.status,
+              status,
               last_updated: new Date().toISOString(),
               last_reported_by: "you",
             }
           : p
       )
     );
+  }
+
+  // Called from ReportModal (map popup flow)
+  function handleModalReport(report: StatusReport) {
+    if (!reportingId) return;
+    applyStatusReport(reportingId, report.status, report.comment);
     setReportingId(null);
   }
 
-  // ── Stat counts for the summary row ──────────────────────────────────────
-  const counts = useMemo(
-    () => ({
-      working: printers.filter((p) => p.status === "working").length,
-      not_working: printers.filter((p) => p.status === "not_working").length,
-      unknown: printers.filter((p) => p.status === "unknown").length,
-      stale: printers.filter(
-        (p) =>
-          isStale(p.last_updated) &&
-          p.status !== "not_working" &&
-          p.status !== "unknown"
-      ).length,
-    }),
-    [printers]
-  );
-
-  function handleIssueReport(e: { preventDefault(): void }) {
+  // Called from Report Status tab form
+  function handleTabReport(e: { preventDefault(): void }) {
     e.preventDefault();
-    setIssueSubmitted(true);
-    setIssueReportPrinter("");
-    setIssueReportText("");
-    setTimeout(() => setIssueSubmitted(false), 3000);
+    if (!reportPrinterId || !reportStatus) return;
+    applyStatusReport(reportPrinterId, reportStatus as PrinterStatus, reportComment);
+    setReportDone(true);
+    // Reset form after short delay
+    setTimeout(() => {
+      setReportDone(false);
+      setReportPrinterId("");
+      setReportStatus("");
+      setReportComment("");
+    }, 3000);
   }
 
-  function handleShare(e: { preventDefault(): void }) {
+  // Called from Share Credits tab form
+  async function handleShare(e: { preventDefault(): void }) {
     e.preventDefault();
-    setShareSubmitted(true);
-    setShareAmount("");
-    setShareRecipient("");
-    setTimeout(() => setShareSubmitted(false), 3000);
+    if (!shareRecipient || !sharePages) return;
+    setShareLoading(true);
+    setShareResult(null);
+    const result = await shareCreditsAction({
+      recipientEmail: shareRecipient,
+      pages: Number(sharePages),
+      message: shareMessage.trim() || undefined,
+    });
+    setShareLoading(false);
+    setShareResult(result);
+    if (result.success) {
+      setShareRecipient("");
+      setSharePages("");
+      setShareMessage("");
+    }
   }
 
   return (
     <div className="flex h-full flex-col p-6">
-      {/* Page header */}
-      <div className="mb-5">
+      {/* Header */}
+      <div className="mb-5 shrink-0">
         <h1 className="text-2xl font-semibold">Printers</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Find printers across NYU campuses, check live status, and report
-          issues.
+          Find NYU print stations, check live crowd-sourced status, and share
+          credits.
         </p>
       </div>
 
@@ -178,18 +212,17 @@ export default function PrintersPage() {
         ))}
       </div>
 
-      {/* ── MAP TAB ─────────────────────────────────────────────────────── */}
+      {/* ── MAP TAB ──────────────────────────────────────────────────────── */}
       {activeTab === "map" && (
         <div className="flex flex-1 flex-col gap-4 min-h-0">
-          {/* Filter bar + stat chips */}
+          {/* Filter + stat row */}
           <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
-            {/* Filters */}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {(
                 [
                   { key: "all", label: `All (${printers.length})` },
                   { key: "not_working", label: `Not Working (${counts.not_working})` },
-                  { key: "needs_attention", label: `Needs Attention (${counts.unknown + counts.stale})` },
+                  { key: "needs_attention", label: `Needs Attention (${counts.unverified})` },
                 ] as const
               ).map(({ key, label }) => (
                 <button
@@ -206,72 +239,61 @@ export default function PrintersPage() {
               ))}
             </div>
 
-            {/* Stat chips */}
             <div className="flex gap-2 text-xs">
-              <span className="flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-green-700 border border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                {counts.working} working
-              </span>
-              <span className="flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-red-700 border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900">
-                <span className="h-2 w-2 rounded-full bg-red-500" />
-                {counts.not_working} down
-              </span>
-              <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900">
-                <span className="h-2 w-2 rounded-full bg-amber-400" />
-                {counts.unknown + counts.stale} unverified
-              </span>
+              <StatChip color="#57068C" bg="bg-purple-50 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900" textColor="text-purple-800 dark:text-purple-300" label={`${counts.working} working`} />
+              <StatChip color="#dc2626" bg="bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900" textColor="text-red-700 dark:text-red-400" label={`${counts.not_working} down`} />
+              <StatChip color="#d97706" bg="bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900" textColor="text-amber-700 dark:text-amber-400" label={`${counts.unverified} unverified`} />
             </div>
           </div>
 
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground shrink-0">
-            <LegendDot color="#22c55e" label="Working" />
-            <LegendDot color="#ef4444" label="Not Working" />
-            <LegendDot color="#eab308" label="Unknown" />
-            <span className="flex items-center gap-1">
-              <span className="flex h-3 w-3 items-center justify-center rounded-full bg-orange-400 text-[8px] text-white">!</span>
+            <LegendFlag color="#57068C" label="Working" />
+            <LegendFlag color="#dc2626" label="Not Working" />
+            <LegendFlag color="#d97706" label="Unknown" />
+            <span className="flex items-center gap-1.5">
+              <span className="flex h-3 w-3 items-center justify-center rounded-full bg-orange-400 text-[7px] font-bold text-white">!</span>
               Orange dot = not verified in 48 h
             </span>
           </div>
 
-          {/* Map — takes remaining vertical space */}
-          <div className="flex-1 min-h-[400px] overflow-hidden rounded-xl border border-border">
+          {/* Map */}
+          <div className="flex-1 min-h-[420px] overflow-hidden rounded-xl border border-border">
             <PrinterMap
               printers={filteredPrinters}
               onReportStatus={(id) => setReportingId(id)}
             />
           </div>
 
-          {/* Printer list (scrollable, below map on smaller screens) */}
-          <PrinterList
-            printers={filteredPrinters}
-            onReport={(id) => setReportingId(id)}
-          />
+          {/* Printer card list below map */}
+          <PrinterList printers={filteredPrinters} onReport={(id) => setReportingId(id)} />
         </div>
       )}
 
-      {/* ── REPORT ISSUE TAB ────────────────────────────────────────────── */}
+      {/* ── REPORT STATUS TAB ─────────────────────────────────────────────── */}
       {activeTab === "report" && (
         <div className="max-w-lg">
-          {issueSubmitted ? (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-6 text-center dark:border-green-900 dark:bg-green-950/30">
-              <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-green-600" />
-              <p className="font-medium text-green-800 dark:text-green-300">
-                Report submitted
+          {reportDone ? (
+            <div className="rounded-lg border border-purple-200 bg-purple-50 p-6 text-center dark:border-purple-900 dark:bg-purple-950/30">
+              <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-[#57068C]" />
+              <p className="font-medium text-purple-900 dark:text-purple-200">
+                Status updated!
               </p>
-              <p className="mt-1 text-sm text-green-600 dark:text-green-400">
-                Thanks for letting us know. We'll update the printer status.
+              <p className="mt-1 text-sm text-purple-700 dark:text-purple-400">
+                The map and printer list have been updated. Thanks for helping
+                fellow students!
               </p>
             </div>
           ) : (
-            <form onSubmit={handleIssueReport} className="space-y-4">
+            <form onSubmit={handleTabReport} className="space-y-5">
+              {/* Printer selector */}
               <div>
                 <label className="mb-1.5 block text-sm font-medium">
                   Printer
                 </label>
                 <select
-                  value={issueReportPrinter}
-                  onChange={(e) => setIssueReportPrinter(e.target.value)}
+                  value={reportPrinterId}
+                  onChange={(e) => setReportPrinterId(e.target.value)}
                   required
                   className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                 >
@@ -283,111 +305,191 @@ export default function PrintersPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Status buttons */}
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Is it working right now?
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setReportStatus("working")}
+                    className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-sm font-medium transition-all ${
+                      reportStatus === "working"
+                        ? "border-purple-600 bg-purple-50 text-purple-800 dark:bg-purple-950/30"
+                        : "border-border bg-card hover:border-purple-300 hover:bg-purple-50/50"
+                    }`}
+                  >
+                    <CheckCircle2 className="h-6 w-6 text-[#57068C]" />
+                    Working ✅
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportStatus("not_working")}
+                    className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-sm font-medium transition-all ${
+                      reportStatus === "not_working"
+                        ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-950/30"
+                        : "border-border bg-card hover:border-red-300 hover:bg-red-50/50"
+                    }`}
+                  >
+                    <XCircle className="h-6 w-6 text-red-500" />
+                    Not Working ❌
+                  </button>
+                </div>
+              </div>
+
+              {/* Comment */}
               <div>
                 <label className="mb-1.5 block text-sm font-medium">
-                  What's wrong?
+                  Comment{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
                 </label>
                 <textarea
-                  value={issueReportText}
-                  onChange={(e) => setIssueReportText(e.target.value)}
-                  required
-                  rows={3}
-                  placeholder="e.g. Paper jam, out of toner, not responding…"
+                  value={reportComment}
+                  onChange={(e) => setReportComment(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Paper jam, out of toner, queue backed up…"
                   className="w-full resize-none rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
                 />
               </div>
+
               <button
                 type="submit"
-                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                disabled={!reportPrinterId || !reportStatus}
+                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Send className="h-4 w-4" />
-                Submit Report
+                Submit — updates map &amp; cards
               </button>
             </form>
           )}
         </div>
       )}
 
-      {/* ── SHARE CREDITS TAB ───────────────────────────────────────────── */}
+      {/* ── SHARE CREDITS TAB ─────────────────────────────────────────────── */}
       {activeTab === "share" && (
         <div className="max-w-lg">
-          {shareSubmitted ? (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-6 text-center dark:border-green-900 dark:bg-green-950/30">
-              <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-green-600" />
+          {/* Success banner */}
+          {shareResult?.success && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-4 text-center dark:border-green-900 dark:bg-green-950/30">
+              <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-green-600" />
               <p className="font-medium text-green-800 dark:text-green-300">
                 Credits shared!
               </p>
-              <p className="mt-1 text-sm text-green-600 dark:text-green-400">
-                The recipient will be notified. Thanks for helping out a fellow
-                Violet.
+              <p className="mt-0.5 text-sm text-green-600 dark:text-green-400">
+                An email has been sent to the recipient.
               </p>
             </div>
-          ) : (
-            <form onSubmit={handleShare} className="space-y-4">
-              <div className="rounded-lg border border-border bg-card p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                    <ArrowRightLeft className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">
-                      Share your unused print credits
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Help a fellow student print their assignment. Credits
-                      transfer instantly.
-                    </p>
-                  </div>
+          )}
+
+          {/* Error banner */}
+          {shareResult && !shareResult.success && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">
+                Failed to send email: {shareResult.error}
+              </p>
+              <p className="mt-1 text-xs text-red-500">
+                Make sure RESEND_API_KEY is set in your environment.
+              </p>
+            </div>
+          )}
+
+          <form onSubmit={handleShare} className="space-y-4">
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                  <ArrowRightLeft className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">
+                    Share your unused print credits
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    The recipient gets an email telling them exactly how many
+                    pages you've shared.
+                  </p>
                 </div>
               </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  Recipient NYU email
-                </label>
-                <input
-                  type="email"
-                  value={shareRecipient}
-                  onChange={(e) => setShareRecipient(e.target.value)}
-                  required
-                  placeholder="netid@nyu.edu"
-                  className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  Pages to share
-                </label>
-                <input
-                  type="number"
-                  value={shareAmount}
-                  onChange={(e) => setShareAmount(e.target.value)}
-                  required
-                  min={1}
-                  max={500}
-                  placeholder="e.g. 50"
-                  className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Each NYU student gets 200 free B&W pages per semester.
-                </p>
-              </div>
-              <button
-                type="submit"
-                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-              >
+            </div>
+
+            {/* Recipient email */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                Recipient NYU email
+              </label>
+              <input
+                type="email"
+                value={shareRecipient}
+                onChange={(e) => setShareRecipient(e.target.value)}
+                required
+                placeholder="netid@nyu.edu"
+                pattern=".*\.edu$"
+                title="Must be an .edu email address"
+                className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Must be an .edu address.
+              </p>
+            </div>
+
+            {/* Pages to share */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                Pages to share
+              </label>
+              <input
+                type="number"
+                value={sharePages}
+                onChange={(e) => setSharePages(e.target.value)}
+                required
+                min={1}
+                max={500}
+                placeholder="e.g. 50"
+                className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+              />
+            </div>
+
+            {/* Optional personal message */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                Personal message{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </label>
+              <textarea
+                value={shareMessage}
+                onChange={(e) => setShareMessage(e.target.value)}
+                rows={2}
+                placeholder="e.g. Good luck with finals!"
+                className="w-full resize-none rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={shareLoading}
+              className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              {shareLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
                 <ArrowRightLeft className="h-4 w-4" />
-                Share Credits
-              </button>
-            </form>
-          )}
+              )}
+              {shareLoading ? "Sending…" : "Share Credits"}
+            </button>
+          </form>
         </div>
       )}
 
-      {/* ── Report Status modal (triggered from map popup) ───────────── */}
+      {/* Report Status modal (triggered from map popup) */}
       {reportingPrinter && (
         <ReportModal
           printer={reportingPrinter}
-          onSubmit={handleStatusReport}
+          onSubmit={handleModalReport}
           onClose={() => setReportingId(null)}
         />
       )}
@@ -397,14 +499,26 @@ export default function PrintersPage() {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function LegendDot({ color, label }: { color: string; label: string }) {
+function StatChip({
+  color, bg, textColor, label,
+}: {
+  color: string; bg: string; textColor: string; label: string;
+}) {
   return (
-    <span className="flex items-center gap-1">
-      <svg width="10" height="14" viewBox="0 0 10 14">
-        <path
-          d="M5 0C2.24 0 0 2.24 0 5C0 8.75 5 14 5 14C5 14 10 8.75 10 5C10 2.24 7.76 0 5 0Z"
-          fill={color}
-        />
+    <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${bg} ${textColor}`}>
+      <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+      {label}
+    </span>
+  );
+}
+
+function LegendFlag({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <svg width="12" height="16" viewBox="0 0 12 16">
+        <rect x="0.5" y="0" width="2" height="15" rx="1" fill={color} />
+        <rect x="2.5" y="0.5" width="9" height="7" rx="1" fill={color} />
+        <circle cx="1.5" cy="15" r="1.2" fill={color} />
       </svg>
       {label}
     </span>
@@ -422,7 +536,7 @@ function PrinterList({
 
   return (
     <div className="shrink-0">
-      <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {printers.length} printer{printers.length !== 1 ? "s" : ""} shown
       </p>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -443,9 +557,7 @@ function PrinterList({
                     <span className="truncate">{printer.building}</span>
                   </p>
                 </div>
-                <Icon
-                  className={`h-4 w-4 shrink-0 ${STATUS_COLOR[printer.status]}`}
-                />
+                <Icon className={`h-4 w-4 shrink-0 ${STATUS_COLOR[printer.status]}`} />
               </div>
 
               <div className="mt-2 flex items-center justify-between gap-2">

@@ -4,10 +4,9 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
-import { AlertTriangle } from "lucide-react";
 import type { Printer, PrinterStatus } from "./types";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers (also exported for use in page.tsx) ─────────────────────────────
 
 const STALE_HOURS = 48;
 
@@ -26,11 +25,11 @@ export function getRelativeTime(isoString: string): string {
   return `${days}d ago`;
 }
 
-// Status color palette
-const STATUS_COLOR: Record<PrinterStatus, string> = {
-  working: "#22c55e",
-  not_working: "#ef4444",
-  unknown: "#eab308",
+// NYU brand purple for working; red/amber for other statuses
+const STATUS_FILL: Record<PrinterStatus, string> = {
+  working: "#57068C",   // NYU Purple
+  not_working: "#dc2626",
+  unknown: "#d97706",
 };
 
 const STATUS_LABEL: Record<PrinterStatus, string> = {
@@ -39,39 +38,48 @@ const STATUS_LABEL: Record<PrinterStatus, string> = {
   unknown: "Unknown",
 };
 
-// Build a custom SVG pin icon; stale printers get an orange warning dot
-function makePinIcon(status: PrinterStatus, stale: boolean): L.DivIcon {
-  const fill = STATUS_COLOR[status];
+// NYU flag-style marker: pole on left, rectangular flag body, status color,
+// white "P" initial inside. Orange dot when printer is stale (>48 h).
+function makeFlagIcon(status: PrinterStatus, stale: boolean): L.DivIcon {
+  const fill = STATUS_FILL[status];
   const staleDot = stale
-    ? `<div style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;
-         background:#f97316;border:2px solid white;border-radius:50%;"></div>`
+    ? `<div style="position:absolute;top:-4px;right:-4px;width:11px;height:11px;
+         background:#f97316;border:2px solid white;border-radius:50%;z-index:2;"></div>`
     : "";
 
   return L.divIcon({
     className: "",
-    html: `<div style="position:relative;display:inline-block;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.35))">
-      <svg width="26" height="38" viewBox="0 0 26 38" xmlns="http://www.w3.org/2000/svg">
-        <path d="M13 0C5.82 0 0 5.82 0 13C0 22.75 13 38 13 38C13 38 26 22.75 26 13C26 5.82 20.18 0 13 0Z"
-              fill="${fill}" stroke="white" stroke-width="1.5"/>
-        <circle cx="13" cy="13" r="5.5" fill="white" opacity="0.9"/>
-      </svg>
-      ${staleDot}
-    </div>`,
-    iconSize: [26, 38],
-    iconAnchor: [13, 38],
-    popupAnchor: [0, -40],
+    html: `
+      <div style="position:relative;display:inline-block;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">
+        <svg width="34" height="46" viewBox="0 0 34 46" xmlns="http://www.w3.org/2000/svg">
+          <!-- Pole -->
+          <rect x="2" y="0" width="3" height="44" rx="1.5" fill="${fill}"/>
+          <!-- Flag body -->
+          <rect x="5" y="1" width="28" height="21" rx="2" fill="${fill}"/>
+          <!-- White "P" for Printer -->
+          <text x="19" y="16" text-anchor="middle" fill="white"
+                font-weight="700" font-size="13"
+                font-family="Montserrat,Arial,sans-serif">P</text>
+          <!-- Ground anchor dot -->
+          <circle cx="3.5" cy="45" r="2.5" fill="${fill}"/>
+        </svg>
+        ${staleDot}
+      </div>`,
+    iconSize: [34, 46],
+    iconAnchor: [3, 46],    // anchor at the pole base
+    popupAnchor: [14, -48], // popup opens above the flag
   });
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 
 interface Props {
   printers: Printer[];
   onReportStatus: (printerId: string) => void;
 }
 
-// NYU spans Brooklyn (Tandon) and Manhattan (WSq); this center + zoom shows both
-const MAP_CENTER: [number, number] = [40.711, -73.993];
+// Center chosen to show both the Brooklyn Tandon campus and WSQ Manhattan campus
+const MAP_CENTER: [number, number] = [40.718, -73.993];
 const MAP_ZOOM = 13;
 
 export default function PrinterMap({ printers, onReportStatus }: Props) {
@@ -82,25 +90,23 @@ export default function PrinterMap({ printers, onReportStatus }: Props) {
       scrollWheelZoom
       className="h-full w-full rounded-xl"
     >
-      {/* OpenStreetMap tiles – no API key required */}
+      {/* OpenStreetMap — no API key needed */}
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      {/* Cluster nearby markers automatically */}
+      {/* Auto-cluster nearby flags when zoomed out */}
       <MarkerClusterGroup chunkedLoading>
         {printers.map((printer) => {
           const stale = isStale(printer.last_updated);
-          const icon = makePinIcon(printer.status, stale);
-
           return (
             <Marker
               key={printer.id}
               position={[printer.latitude, printer.longitude]}
-              icon={icon}
+              icon={makeFlagIcon(printer.status, stale)}
             >
-              <Popup minWidth={200} maxWidth={240}>
+              <Popup minWidth={210} maxWidth={250}>
                 <PopupCard
                   printer={printer}
                   stale={stale}
@@ -115,7 +121,7 @@ export default function PrinterMap({ printers, onReportStatus }: Props) {
   );
 }
 
-// ─── Popup card (rendered inside Leaflet popup) ──────────────────────────────
+// ─── Popup card ───────────────────────────────────────────────────────────────
 
 function PopupCard({
   printer,
@@ -126,12 +132,11 @@ function PopupCard({
   stale: boolean;
   onReport: () => void;
 }) {
-  const color = STATUS_COLOR[printer.status];
+  const fill = STATUS_FILL[printer.status];
 
   return (
-    <div style={{ fontFamily: "inherit", minWidth: 190 }}>
-      {/* Printer name + location */}
-      <p style={{ fontWeight: 600, fontSize: 14, margin: "0 0 2px" }}>
+    <div style={{ fontFamily: "Montserrat, Arial, sans-serif", minWidth: 200 }}>
+      <p style={{ fontWeight: 700, fontSize: 13, margin: "0 0 2px", color: "#1a1a1a" }}>
         {printer.name}
       </p>
       <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 8px" }}>
@@ -139,91 +144,48 @@ function PopupCard({
       </p>
 
       {/* Status badge */}
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 5,
-          padding: "2px 8px",
-          borderRadius: 99,
-          background: color + "22",
-          border: `1px solid ${color}55`,
-          fontSize: 12,
-          fontWeight: 500,
-          color,
-          marginBottom: 6,
-        }}
-      >
-        <span
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: color,
-            display: "inline-block",
-          }}
-        />
+      <div style={{
+        display: "inline-flex", alignItems: "center", gap: 5,
+        padding: "2px 9px", borderRadius: 99,
+        background: fill + "18", border: `1px solid ${fill}44`,
+        fontSize: 12, fontWeight: 600, color: fill, marginBottom: 6,
+      }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: fill, display: "inline-block" }} />
         {STATUS_LABEL[printer.status]}
       </div>
 
       {/* Stale warning */}
       {stale && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "3px 8px",
-            borderRadius: 6,
-            background: "#fff7ed",
-            border: "1px solid #fed7aa",
-            fontSize: 11,
-            color: "#c2410c",
-            marginBottom: 6,
-          }}
-        >
-          <span>⚠️</span>
-          Needs verification — last seen {getRelativeTime(printer.last_updated)}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "3px 8px", borderRadius: 6,
+          background: "#fff7ed", border: "1px solid #fed7aa",
+          fontSize: 11, color: "#c2410c", marginBottom: 6,
+        }}>
+          ⚠️ Not verified in {getRelativeTime(printer.last_updated)} — needs check
         </div>
       )}
 
-      {/* Timestamps */}
       {!stale && (
         <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 2px" }}>
           Updated {getRelativeTime(printer.last_updated)}
-        </p>
-      )}
-      {printer.last_reported_by && (
-        <p style={{ fontSize: 11, color: "#9ca3af", margin: "0 0 8px" }}>
-          Reported by {printer.last_reported_by}
+          {printer.last_reported_by ? ` · by ${printer.last_reported_by}` : ""}
         </p>
       )}
 
-      {/* Printer type chip */}
-      <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
+      <p style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>
         {printer.printer_type}
       </p>
 
-      {/* Report button */}
       <button
         onClick={onReport}
         style={{
-          width: "100%",
-          padding: "6px 0",
-          borderRadius: 7,
-          background: "#1d4ed8",
-          color: "white",
-          fontSize: 12,
-          fontWeight: 600,
-          border: "none",
-          cursor: "pointer",
+          width: "100%", padding: "7px 0", borderRadius: 7,
+          background: "#57068C", color: "white",
+          fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer",
         }}
-        onMouseOver={(e) =>
-          ((e.target as HTMLButtonElement).style.background = "#1e40af")
-        }
-        onMouseOut={(e) =>
-          ((e.target as HTMLButtonElement).style.background = "#1d4ed8")
-        }
+        onMouseOver={(e) => ((e.target as HTMLButtonElement).style.background = "#3d0563")}
+        onMouseOut={(e) => ((e.target as HTMLButtonElement).style.background = "#57068C")}
       >
         Report Status
       </button>
