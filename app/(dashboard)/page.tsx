@@ -20,18 +20,29 @@ import {
   ImageIcon,
   CalendarCheck,
   ExternalLink,
+  Handshake,
+  StickyNote,
 } from "lucide-react";
 import { useChatReset, useUserContext, CHAT_MESSAGES_KEY } from "./chat-context";
 import { uploadChatImageAction } from "./chat-actions";
 import { Markdown } from "../components/markdown";
 
-type NavTab = "spaces" | "exchange" | "mentoring" | "printers" | "home";
+type NavTab =
+  | "spaces"
+  | "exchange"
+  | "mentoring"
+  | "printers"
+  | "partner"
+  | "community"
+  | "home";
 
 const TAB_ICONS: Record<NavTab, typeof MapPin> = {
   spaces: MapPin,
   exchange: ArrowLeftRight,
   mentoring: Users,
   printers: Printer,
+  partner: Handshake,
+  community: StickyNote,
   home: MessageCircle,
 };
 

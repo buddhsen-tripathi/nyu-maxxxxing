@@ -1484,4 +1484,244 @@ export const agentTools = {
       }
     },
   }),
+
+  // ─── RateMyProfessors lookup (NYU) ───────────────────────────────────────
+  // Uses the unofficial public GraphQL endpoint that the RMP web app talks to.
+  // Subject to breakage if RMP changes their schema or auth scheme.
+
+  lookupProfessor: tool({
+    description:
+      "Look up an NYU professor on RateMyProfessors. Returns overall rating (1-5), difficulty, would-take-again %, number of ratings, recent student comments, and a profile URL. Use when a user asks 'how is prof X', 'is professor Y hard', 'should I take prof Z next semester', etc. If the professor isn't found, say so plainly and suggest asking peers via the Mentoring or Community tab.",
+    inputSchema: z.object({
+      name: z
+        .string()
+        .min(2)
+        .describe("Professor's name. Last name alone works; first+last is more accurate."),
+      department: z
+        .string()
+        .optional()
+        .describe("Optional department hint to disambiguate, e.g. 'Computer Science'"),
+    }),
+    execute: async ({ name, department }) => {
+      // School-675 = NYU on RMP, base64-encoded as the GraphQL ID
+      const NYU_SCHOOL_ID = "U2Nob29sLTY3NQ==";
+      const RMP_AUTH = "Basic dGVzdDp0ZXN0";
+
+      const SEARCH_QUERY = `
+        query Search($q: TeacherSearchQuery!) {
+          newSearch {
+            teachers(query: $q, first: 8) {
+              edges {
+                node {
+                  id
+                  legacyId
+                  firstName
+                  lastName
+                  department
+                  avgRating
+                  numRatings
+                  wouldTakeAgainPercent
+                  avgDifficulty
+                  school { name }
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      const RATINGS_QUERY = `
+        query Ratings($id: ID!) {
+          node(id: $id) {
+            ... on Teacher {
+              ratings(first: 4) {
+                edges {
+                  node {
+                    class
+                    comment
+                    qualityRating
+                    difficultyRating
+                    wouldTakeAgain
+                    date
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      try {
+        // Step 1 — search by name within NYU
+        const searchRes = await fetch(
+          "https://www.ratemyprofessors.com/graphql",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: RMP_AUTH,
+            },
+            body: JSON.stringify({
+              query: SEARCH_QUERY,
+              variables: { q: { text: name, schoolID: NYU_SCHOOL_ID } },
+            }),
+            // 8s safety net — RMP can stall
+            signal: AbortSignal.timeout(8000),
+          }
+        );
+
+        if (!searchRes.ok)
+          return {
+            found: 0,
+            message: `RateMyProfessors returned ${searchRes.status}. Try again in a bit, or ask peers via the Community tab.`,
+          };
+
+        const searchData = (await searchRes.json()) as {
+          data?: {
+            newSearch?: {
+              teachers?: {
+                edges?: Array<{
+                  node: {
+                    id: string;
+                    legacyId: number;
+                    firstName: string;
+                    lastName: string;
+                    department: string | null;
+                    avgRating: number;
+                    numRatings: number;
+                    wouldTakeAgainPercent: number;
+                    avgDifficulty: number;
+                    school: { name: string };
+                  };
+                }>;
+              };
+            };
+          };
+        };
+
+        const candidates =
+          searchData.data?.newSearch?.teachers?.edges?.map((e) => e.node) ?? [];
+
+        if (candidates.length === 0)
+          return {
+            found: 0,
+            message: `Couldn't find "${name}" on RateMyProfessors at NYU. They might not have any ratings yet — try asking peers in the Community or Mentoring tab.`,
+          };
+
+        // Pick best match: prefer department match, then highest numRatings
+        let top = candidates[0];
+        if (department) {
+          const deptMatch = candidates.find(
+            (c) =>
+              c.department && ciIncludes(c.department, department)
+          );
+          if (deptMatch) top = deptMatch;
+        } else {
+          // Otherwise prefer the one with the most ratings (probably the right one)
+          top = [...candidates].sort(
+            (a, b) => b.numRatings - a.numRatings
+          )[0];
+        }
+
+        // Step 2 — fetch a few recent comments
+        let comments: Array<{
+          class: string | null;
+          comment: string;
+          quality: number;
+          difficulty: number;
+          wouldTakeAgain: boolean | null;
+          date: string;
+        }> = [];
+
+        try {
+          const ratingsRes = await fetch(
+            "https://www.ratemyprofessors.com/graphql",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: RMP_AUTH,
+              },
+              body: JSON.stringify({
+                query: RATINGS_QUERY,
+                variables: { id: top.id },
+              }),
+              signal: AbortSignal.timeout(8000),
+            }
+          );
+          if (ratingsRes.ok) {
+            const rd = (await ratingsRes.json()) as {
+              data?: {
+                node?: {
+                  ratings?: {
+                    edges?: Array<{
+                      node: {
+                        class: string | null;
+                        comment: string;
+                        qualityRating: number;
+                        difficultyRating: number;
+                        wouldTakeAgain: number | null;
+                        date: string;
+                      };
+                    }>;
+                  };
+                };
+              };
+            };
+            comments =
+              rd.data?.node?.ratings?.edges?.map((e) => ({
+                class: e.node.class,
+                comment: e.node.comment,
+                quality: e.node.qualityRating,
+                difficulty: e.node.difficultyRating,
+                wouldTakeAgain:
+                  e.node.wouldTakeAgain === null
+                    ? null
+                    : e.node.wouldTakeAgain === 1,
+                date: e.node.date,
+              })) ?? [];
+          }
+        } catch {
+          // Comments are best-effort — don't fail the whole tool
+        }
+
+        // Other matches the agent could surface if disambiguation is needed
+        const others = candidates
+          .filter((c) => c.id !== top.id)
+          .slice(0, 3)
+          .map((c) => ({
+            firstName: c.firstName,
+            lastName: c.lastName,
+            department: c.department,
+            avgRating: c.avgRating,
+            numRatings: c.numRatings,
+          }));
+
+        return {
+          found: 1,
+          professor: {
+            firstName: top.firstName,
+            lastName: top.lastName,
+            department: top.department,
+            school: top.school.name,
+            avgRating: top.avgRating,
+            avgDifficulty: top.avgDifficulty,
+            wouldTakeAgainPercent: top.wouldTakeAgainPercent,
+            numRatings: top.numRatings,
+            profileUrl: `https://www.ratemyprofessors.com/professor/${top.legacyId}`,
+            comments,
+          },
+          otherMatches: others.length > 0 ? others : undefined,
+        };
+      } catch (err) {
+        return {
+          found: 0,
+          message:
+            err instanceof Error
+              ? `Couldn't reach RateMyProfessors: ${err.message}`
+              : "Couldn't reach RateMyProfessors.",
+        };
+      }
+    },
+  }),
 };
