@@ -10,7 +10,6 @@ import {
   Pencil,
   Phone,
   Plus,
-  Search,
   Send,
   Sofa,
   Tag,
@@ -18,6 +17,7 @@ import {
   UtensilsCrossed,
   X,
 } from "lucide-react";
+import { SearchInput } from "@/app/components/search-input";
 
 type Category = "Textbooks" | "Furniture" | "Meal Swipes" | "Electronics" | "Other";
 type Condition = "Like New" | "Good" | "Fair" | "N/A";
@@ -633,16 +633,12 @@ export default function ExchangePage() {
         </div>
       </div>
 
-      <div className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-[1fr_auto_auto]">
-        <label className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            className="w-full bg-transparent outline-none placeholder:text-muted-foreground"
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search by item or seller"
-            value={searchQuery}
-          />
-        </label>
+      <div className="mb-6 grid gap-3 md:grid-cols-[1fr_auto_auto]">
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by item or seller…"
+        />
 
         <select
           className="rounded-lg border border-border bg-background px-3 py-2 text-sm"

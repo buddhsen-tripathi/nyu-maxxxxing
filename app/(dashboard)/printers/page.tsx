@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   MapPin,
   Loader2,
-  Search,
   RefreshCw,
   Paperclip,
   X,
@@ -19,6 +18,7 @@ import {
 import { initialPrinters } from "./printerData";
 import ReportModal from "./ReportModal";
 import { isStale, getRelativeTime } from "./utils";
+import { SearchInput } from "@/app/components/search-input";
 import {
   loadPrintersAction,
   reportPrinterStatusAction,
@@ -326,24 +326,11 @@ export default function PrintersPage() {
       {activeTab === "map" && (
         <div className="flex flex-1 flex-col gap-3 min-h-0">
           {/* Search bar */}
-          <div className="relative shrink-0">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search printers by name, building, or floor…"
-              className="w-full rounded-lg border border-input bg-card py-2.5 pl-9 pr-4 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
-              >
-                ✕
-              </button>
-            )}
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search printers by name, building, or floor…"
+          />
 
           {/* Filter + stat row */}
           <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
