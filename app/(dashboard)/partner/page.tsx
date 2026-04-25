@@ -125,8 +125,11 @@ const activityIcons: Record<string, typeof Dumbbell> = {
 export default function PartnerPage() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
-  const [selectedListing, setSelectedListing] = useState(null);
-  const [selectedParticipant, setSelectedParticipant] = useState(null);
+  const [selectedListing, setSelectedListing] = useState<typeof partnerListings[0] | null>(null);
+  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
+  const [joinMode, setJoinMode] = useState<"join" | "leave" | null>(null);
+  const [joinName, setJoinName] = useState("");
+  const [joinError, setJoinError] = useState("");
   const [formData, setFormData] = useState({
     activity: "",
     seeking: "partner",
@@ -269,7 +272,7 @@ export default function PartnerPage() {
   // Ensure filteredListings is always an array
   const safeFilteredListings = Array.isArray(filteredListings) ? filteredListings : [];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: { preventDefault(): void }) => {
     e.preventDefault();
     const maxParticipants = formData.seeking === "partner" ? 2 : Math.max(2, Number(formData.maxParticipants));
     const newListing = {
@@ -306,6 +309,52 @@ export default function PartnerPage() {
       }
       return newData;
     });
+  };
+
+  const closeModal = () => {
+    setSelectedListing(null);
+    setJoinMode(null);
+    setJoinName("");
+    setJoinError("");
+  };
+
+  const handleJoinConfirm = () => {
+    if (!selectedListing || !joinName.trim()) return;
+    const name = joinName.trim();
+
+    // Store the joined name inside the entry so leave doesn't need to ask again
+    setJoinedListings([...joinedListings, { ...selectedListing, _joinedAs: name }]);
+    const updatedListings = listings.map(listing =>
+      listing.name === selectedListing.name && listing.posted === selectedListing.posted
+        ? { ...listing, currentParticipants: (Number(listing.currentParticipants) || 1) + 1, participants: [...(listing.participants || []), name] }
+        : listing
+    );
+    setListings(updatedListings);
+    const updated = updatedListings.find(l => l.name === selectedListing.name && l.posted === selectedListing.posted);
+    if (updated) setSelectedListing(updated);
+    setJoinMode(null);
+    setJoinName("");
+    setJoinError("");
+  };
+
+  const handleLeave = () => {
+    if (!selectedListing) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const joinedEntry = joinedListings.find((j: any) => j.name === selectedListing.name && j.posted === selectedListing.posted);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const joinedAs: string | undefined = (joinedEntry as any)?._joinedAs;
+    setJoinedListings(joinedListings.filter((j: { name: string; posted: string }) =>
+      !(j.name === selectedListing.name && j.posted === selectedListing.posted)
+    ));
+    if (joinedAs) {
+      const updatedListings = listings.map(listing =>
+        listing.name === selectedListing.name && listing.posted === selectedListing.posted
+          ? { ...listing, currentParticipants: Math.max(1, (Number(listing.currentParticipants) || 1) - 1), participants: (listing.participants || []).filter((p: string) => p !== joinedAs) }
+          : listing
+      );
+      setListings(updatedListings);
+    }
+    closeModal();
   };
 
   return (
@@ -432,7 +481,7 @@ export default function PartnerPage() {
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Partner Up</h2>
               <button
-                onClick={() => setSelectedListing(null)}
+                onClick={closeModal}
                 className="rounded-full p-1 hover:bg-accent"
               >
                 <X className="h-4 w-4" />
@@ -511,113 +560,102 @@ export default function PartnerPage() {
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t">
-                <button
-                  onClick={() => setSelectedListing(null)}
-                  className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                >
-                  Cancel
-                </button>
-                {mounted ? (
-                  joinedListings.some(joined => joined.name === selectedListing.name && joined.posted === selectedListing.posted) ? (
-                    <div className="flex gap-3">
+              <div className="pt-4 border-t space-y-3">
+                {/* Inline join name input */}
+                {joinMode && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Enter your name to join:</p>
+                    <div className="flex gap-2">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={joinName}
+                        onChange={e => { setJoinName(e.target.value); setJoinError(""); }}
+                        onKeyDown={e => e.key === "Enter" && handleJoinConfirm()}
+                        className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="Your name"
+                      />
                       <button
-                        className="flex-1 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white"
-                        disabled
+                        onClick={handleJoinConfirm}
+                        disabled={!joinName.trim()}
+                        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                       >
-                        You Joined ✓
-                      </button>
-                      <button
-                        className="flex-1 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-                        onClick={() => {
-                          const userName = prompt(`Enter your name to leave the group (current participants: ${(selectedListing.participants || []).join(", ")}):`);
-                          if (userName && userName.trim()) {
-                            // Check if the entered name is actually a participant
-                            if (!(selectedListing.participants || []).includes(userName.trim())) {
-                              alert(`"${userName.trim()}" is not a participant in this group.`);
-                              return;
-                            }
-                            // Prevent the owner from leaving their own listing
-                            if (userName.trim() === selectedListing.name) {
-                              alert(`You cannot leave your own listing. As the organizer, you must delete the listing instead.`);
-                              return;
-                            }
-                            // Remove from joined listings
-                            setJoinedListings(joinedListings.filter(joined => 
-                              !(joined.name === selectedListing.name && joined.posted === selectedListing.posted)
-                            ));
-                            // Update participant count and remove from participants array
-                            const updatedListings = listings.map(listing => 
-                              listing.name === selectedListing.name && listing.posted === selectedListing.posted
-                                ? { 
-                                    ...listing, 
-                                    currentParticipants: Math.max(1, (Number(listing.currentParticipants) || 1) - 1),
-                                    participants: (listing.participants || []).filter(p => p !== userName.trim())
-                                  }
-                                : listing
-                            );
-                            setListings(updatedListings);
-                            // Update selectedListing to reflect the changes
-                            const updatedListing = updatedListings.find(listing => 
-                              listing.name === selectedListing.name && listing.posted === selectedListing.posted
-                            );
-                            if (updatedListing) {
-                              setSelectedListing(updatedListing);
-                            }
-                            alert(`You've left the group.`);
-                          }
-                        }}
-                      >
-                        Leave Group
+                        Confirm
                       </button>
                     </div>
-                  ) : Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1)) === 0 ? (
+                    {joinError && (
+                      <p className="text-xs text-red-500">{joinError}</p>
+                    )}
                     <button
-                      className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white"
-                      disabled
+                      onClick={() => { setJoinMode(null); setJoinName(""); setJoinError(""); }}
+                      className="text-xs text-muted-foreground hover:underline"
                     >
-                      Full
+                      Cancel
                     </button>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                {!joinMode && (
+                  mounted ? (
+                    joinedListings.some((j: { name: string; posted: string }) => j.name === selectedListing.name && j.posted === selectedListing.posted) ? (
+                      <div className="space-y-3">
+                        <div className="rounded-md bg-green-600/10 border border-green-600/30 px-4 py-3 space-y-1">
+                          <p className="text-green-600 font-semibold text-sm">✓ You&apos;ve joined!</p>
+                          <p className="text-xs text-muted-foreground">
+                            Contact <span className="font-medium text-foreground">{selectedListing.name}</span> at{" "}
+                            <a href={`mailto:${selectedListing.contact}`} className="text-primary hover:underline">
+                              {selectedListing.contact}
+                            </a>{" "}to coordinate.
+                          </p>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={closeModal}
+                            className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                          >
+                            Close
+                          </button>
+                          <button
+                            className="flex-1 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                            onClick={handleLeave}
+                          >
+                            Leave Group
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-3">
+                        <button
+                          onClick={closeModal}
+                          className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                        >
+                          Close
+                        </button>
+                        {Math.max(0, (Number(selectedListing.maxParticipants) || 1) - (Number(selectedListing.currentParticipants) || 1)) === 0 ? (
+                          <button className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white" disabled>
+                            Full
+                          </button>
+                        ) : (
+                          <button
+                            className="flex-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                            onClick={() => { setJoinMode("join"); setJoinName(""); setJoinError(""); }}
+                          >
+                            {selectedListing.seeking === "partner" ? "Partner Up" : "Join Group"}
+                          </button>
+                        )}
+                      </div>
+                    )
                   ) : (
-                    <button
-                      className="flex-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                      onClick={() => {
-                        const userName = prompt("Enter your name to join:");
-                        if (userName && userName.trim()) {
-                          // Add to joined listings
-                          setJoinedListings([...joinedListings, selectedListing]);
-                          // Update participant count and add to participants array
-                          const updatedListings = listings.map(listing => 
-                            listing.name === selectedListing.name && listing.posted === selectedListing.posted
-                              ? { 
-                                  ...listing, 
-                                  currentParticipants: (Number(listing.currentParticipants) || 1) + 1,
-                                  participants: [...(listing.participants || []), userName.trim()]
-                                }
-                              : listing
-                          );
-                          setListings(updatedListings);
-                          // Update selectedListing to reflect the changes
-                          const updatedListing = updatedListings.find(listing => 
-                            listing.name === selectedListing.name && listing.posted === selectedListing.posted
-                          );
-                          if (updatedListing) {
-                            setSelectedListing(updatedListing);
-                          }
-                          alert(`You've joined! Contact ${selectedListing.name} at ${selectedListing.contact} to coordinate.`);
-                        }
-                      }}
-                    >
-                      {selectedListing.seeking === "partner" ? "Partner Up" : "Join Group"}
-                    </button>
+                    <div className="flex gap-3">
+                      <button onClick={closeModal} className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent">
+                        Close
+                      </button>
+                      <button className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white" disabled>
+                        Loading...
+                      </button>
+                    </div>
                   )
-                ) : (
-                  <button
-                    className="flex-1 rounded-md bg-gray-500 px-4 py-2 text-sm font-medium text-white"
-                    disabled
-                  >
-                    Loading...
-                  </button>
                 )}
               </div>
             </div>
@@ -646,27 +684,61 @@ export default function PartnerPage() {
                 </div>
                 <div>
                   <h3 className="font-medium">{selectedParticipant}</h3>
-                  <p className="text-sm text-muted-foreground">Participant</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedParticipant === selectedListing?.name ? "Organizer" : "Participant"}
+                  </p>
                 </div>
               </div>
 
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">📧</span>
-                  <span>Contact information not available</span>
+                  {selectedParticipant === selectedListing?.name ? (
+                    <a
+                      href={`mailto:${selectedListing.contact}`}
+                      className="text-primary hover:underline"
+                    >
+                      {selectedListing.contact}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      No contact info — reach out via the organizer
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">🎯</span>
-                  <span>Joined this activity</span>
+                  <span>
+                    {selectedParticipant === selectedListing?.name
+                      ? `Organising ${selectedListing.activity}`
+                      : `Joined ${selectedListing?.activity}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">📍</span>
+                  <span>{selectedListing?.location}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">🕒</span>
+                  <span>{selectedListing?.time}</span>
                 </div>
               </div>
 
-              <div className="pt-4 border-t">
-                <p className="text-xs text-muted-foreground">
-                  This participant is part of the {selectedListing?.activity} activity.
-                  You can coordinate with them through the activity organizer: {selectedListing?.name} ({selectedListing?.contact})
-                </p>
-              </div>
+              {selectedParticipant !== selectedListing?.name && (
+                <div className="pt-3 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    To coordinate, contact the organiser{" "}
+                    <span className="font-medium text-foreground">{selectedListing?.name}</span>{" "}
+                    at{" "}
+                    <a
+                      href={`mailto:${selectedListing?.contact}`}
+                      className="text-primary hover:underline"
+                    >
+                      {selectedListing?.contact}
+                    </a>
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
