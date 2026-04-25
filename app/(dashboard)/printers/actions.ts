@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { printers, printerReports } from "@/db/schema";
 import { initialPrinters } from "./printerData";
 import { Resend } from "resend";
+import { upload, download } from "@/lib/agent-bucket";
 import type { Printer, PrinterStatus } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,25 +101,78 @@ export async function reportPrinterStatusAction(
   }
 }
 
+// ── Upload attachment to AgentBucket ─────────────────────────────────────────
+// Called from the client BEFORE shareCreditsAction so that the file lives in
+// storage and we just pass the key around. Returns the storage key + filename.
+
+export async function uploadShareAttachmentAction(
+  formData: FormData
+): Promise<{ success: true; key: string; fileName: string; size: number } | { success: false; error: string }> {
+  try {
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return { success: false, error: "No file provided" };
+    }
+
+    // 10 MB cap – avoid abuse and keep email-friendly
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      return { success: false, error: "File exceeds 10 MB limit" };
+    }
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `printers/share/${Date.now()}-${safeName}`;
+
+    const result = await upload(file, path, file.type || "application/octet-stream");
+
+    return {
+      success: true,
+      key: result.key,
+      fileName: file.name,
+      size: file.size,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Upload failed";
+    return { success: false, error: msg };
+  }
+}
+
 // ── Share credits via email ───────────────────────────────────────────────────
 
 export interface ShareCreditsPayload {
   recipientEmail: string;
   pages: number;
   message?: string;
+  attachment?: {
+    key: string;
+    fileName: string;
+  };
 }
 
 export async function shareCreditsAction(
   payload: ShareCreditsPayload
 ): Promise<{ success: boolean; error?: string }> {
   const resend = new Resend(process.env.RESEND_API_KEY);
-  const { recipientEmail, pages, message } = payload;
+  const { recipientEmail, pages, message, attachment } = payload;
 
   try {
+    // If an attachment was uploaded, pull it back from AgentBucket
+    let attachments: { filename: string; content: Buffer }[] | undefined;
+    if (attachment) {
+      const buf = await download(attachment.key);
+      attachments = [
+        {
+          filename: attachment.fileName,
+          content: Buffer.from(buf),
+        },
+      ];
+    }
+
     const { error } = await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "NYU Maxxxxing <onboarding@resend.dev>",
       to: recipientEmail,
       subject: `You've received ${pages} NYU print credit${pages !== 1 ? "s" : ""}!`,
+      attachments,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;
                     padding:24px;border:1px solid #e5e7eb;border-radius:10px;">
@@ -138,6 +192,19 @@ export async function shareCreditsAction(
               ? `<div style="background:#f3f4f6;border-left:3px solid #57068C;
                             padding:10px 14px;border-radius:4px;margin-bottom:16px;">
                   <p style="color:#374151;font-size:13px;margin:0;font-style:italic;">"${message}"</p>
+                </div>`
+              : ""
+          }
+          ${
+            attachment
+              ? `<div style="background:#faf5ff;border:1px solid #e9d5ff;
+                            padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+                  <p style="color:#581c87;font-size:13px;margin:0 0 4px;font-weight:600;">
+                    📎 Attachment included
+                  </p>
+                  <p style="color:#6b7280;font-size:12px;margin:0;">
+                    <strong>${attachment.fileName}</strong> — ready to print.
+                  </p>
                 </div>`
               : ""
           }

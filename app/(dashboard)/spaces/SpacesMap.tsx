@@ -342,6 +342,26 @@ function PopupCard({
         </button>
       </div>
 
+      {/* Book / availability link */}
+      {space.bookingUrl && (
+        <a
+          href={space.bookingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            gap: 5, padding: "7px 0", marginTop: 6, borderRadius: 8,
+            background: "#fff", color: "#7c3aed", textDecoration: "none",
+            fontSize: 12, fontWeight: 600,
+            border: "1px solid #c4b5fd", cursor: "pointer",
+          }}
+          onMouseOver={(e) => ((e.currentTarget as HTMLAnchorElement).style.background = "#f5f3ff")}
+          onMouseOut={(e) => ((e.currentTarget as HTMLAnchorElement).style.background = "#fff")}
+        >
+          📅 Book / Check Availability →
+        </a>
+      )}
+
       {/* Submitted by */}
       {space.submittedBy && (
         <p style={{ fontSize: 10, color: "#a78bfa", marginTop: 6, textAlign: "center" }}>

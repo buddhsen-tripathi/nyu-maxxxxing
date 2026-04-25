@@ -44,13 +44,35 @@ export const listings = pgTable("listings", {
 export const mentors = pgTable("mentors", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  email: text("email").notNull().unique(),
   major: text("major").notNull(),
-  bio: text("bio").notNull(),
+  program: text("program").notNull().default(""),
+  bio: text("bio").default("").notNull(),
   topics: text("topics").array().notNull(),
-  rating: real("rating").default(0).notNull(),
+  rating: real("rating").default(5.0).notNull(),
   sessions: integer("sessions").default(0).notNull(),
   available: boolean("available").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Mentor Time Slots ──
+export const mentorSlots = pgTable("mentor_slots", {
+  id: serial("id").primaryKey(),
+  mentorId: integer("mentor_id").references(() => mentors.id, { onDelete: "cascade" }).notNull(),
+  date: text("date").notNull(),        // ISO date e.g. "2026-04-28"
+  startTime: text("start_time").notNull(), // e.g. "10:00 am"
+  booked: boolean("booked").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Bookings ──
+export const bookings = pgTable("bookings", {
+  id: serial("id").primaryKey(),
+  mentorId: integer("mentor_id").references(() => mentors.id).notNull(),
+  slotId: integer("slot_id").references(() => mentorSlots.id).notNull(),
+  bookerName: text("booker_name").notNull(),
+  bookerEmail: text("booker_email").notNull(),
+  bookedAt: timestamp("booked_at").defaultNow().notNull(),
 });
 
 // ── Printers ──
@@ -80,5 +102,19 @@ export const printerReports = pgTable("printer_reports", {
   // "working" | "not_working"
   status: text("status").notNull(),
   comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Partner Listings ──
+export const partners = pgTable("partners", {
+  id: serial("id").primaryKey(),
+  activity: text("activity").notNull(), // "Gym", "Study", "Sports", etc.
+  seeking: text("seeking").notNull(), // "partner" | "group"
+  description: text("description").notNull(),
+  time: text("time").notNull(), // "Weekdays 6-8 PM", "Saturdays 10 AM", etc.
+  location: text("location").notNull(), // "NYU Gym", "Washington Square Park", etc.
+  name: text("name").notNull(),
+  contact: text("contact").notNull(), // email or phone
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

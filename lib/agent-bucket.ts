@@ -1,8 +1,8 @@
 const BASE_URL = "https://bucket0.com/api/agent-bucket";
 
 function getKey(): string {
-  const key = process.env.AGENT_BUCKET_KEY;
-  if (!key) throw new Error("AGENT_BUCKET_KEY is not set");
+  const key = process.env.BUCKET0_AGENT_BUCKET;
+  if (!key) throw new Error("BUCKET0_AGENT_BUCKET is not set");
   return key;
 }
 

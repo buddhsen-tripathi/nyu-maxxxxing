@@ -2,34 +2,60 @@
 
 import { useChat } from "@ai-sdk/react";
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import {
   ArrowUp,
+  ArrowRight,
   MapPin,
   ArrowLeftRight,
   Users,
   GraduationCap,
   Loader2,
+  Printer,
+  MessageCircle,
 } from "lucide-react";
+import { useChatReset } from "./chat-context";
+import { Markdown } from "../components/markdown";
+
+type NavTab = "spaces" | "exchange" | "mentoring" | "printers" | "home";
+
+const TAB_ICONS: Record<NavTab, typeof MapPin> = {
+  spaces: MapPin,
+  exchange: ArrowLeftRight,
+  mentoring: Users,
+  printers: Printer,
+  home: MessageCircle,
+};
 
 const suggestions = [
   {
     icon: MapPin,
-    label: "Find a quiet study spot",
-    prompt: "Find me a quiet study spot near Tandon that's open right now",
+    label: "Find a study spot",
+    prompt: "Help me find a good place to study",
   },
   {
     icon: ArrowLeftRight,
-    label: "List my items for sale",
-    prompt: "Help me list my used calculus textbook on the exchange",
+    label: "Browse the exchange",
+    prompt: "What's on the exchange right now?",
   },
   {
     icon: Users,
-    label: "Find a mentor",
-    prompt: "I need a quick chat with someone who's taken CS-UY 2124",
+    label: "Talk to a mentor",
+    prompt: "Connect me with a peer mentor",
+  },
+  {
+    icon: Printer,
+    label: "Find a printer",
+    prompt: "Where can I print right now?",
   },
 ];
 
 export default function ChatPage() {
+  const { chatKey } = useChatReset();
+  return <ChatInner key={chatKey} />;
+}
+
+function ChatInner() {
   const { messages, sendMessage, status } = useChat();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -111,20 +137,32 @@ export default function ChatPage() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
           {messages.map((msg) => {
-            // Skip tool-only assistant messages with no text
-            if (
-              msg.role === "assistant" &&
-              !msg.parts.some((p) => p.type === "text" && p.text.trim())
-            ) {
-              return null;
-            }
-
             const textContent = msg.parts
               .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
               .map((p) => p.text)
               .join("");
 
-            if (!textContent.trim()) return null;
+            const navButtons = msg.parts.flatMap((p) => {
+              if (
+                p.type === "tool-navigateTo" &&
+                p.state === "output-available" &&
+                p.output &&
+                typeof p.output === "object"
+              ) {
+                const out = p.output as { tab: NavTab; href: string; label: string };
+                return [{ id: p.toolCallId, ...out }];
+              }
+              return [];
+            });
+
+            // Skip empty assistant messages (no text + no nav buttons)
+            if (
+              msg.role === "assistant" &&
+              !textContent.trim() &&
+              navButtons.length === 0
+            ) {
+              return null;
+            }
 
             return (
               <div key={msg.id} className="flex gap-3">
@@ -136,15 +174,40 @@ export default function ChatPage() {
                 <div
                   className={`flex-1 ${msg.role === "user" ? "text-right" : ""}`}
                 >
-                  <div
-                    className={`inline-block max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                      msg.role === "user"
-                        ? "bg-secondary text-secondary-foreground"
-                        : "text-foreground"
-                    }`}
-                  >
-                    {textContent}
-                  </div>
+                  {textContent.trim() && (
+                    <div
+                      className={`inline-block max-w-[85%] rounded-2xl px-4 py-3 ${
+                        msg.role === "user"
+                          ? "bg-secondary text-secondary-foreground text-sm leading-relaxed whitespace-pre-wrap"
+                          : "text-foreground"
+                      }`}
+                    >
+                      {msg.role === "assistant" ? (
+                        <Markdown text={textContent} />
+                      ) : (
+                        textContent
+                      )}
+                    </div>
+                  )}
+
+                  {navButtons.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {navButtons.map((btn) => {
+                        const Icon = TAB_ICONS[btn.tab] ?? ArrowRight;
+                        return (
+                          <Link
+                            key={btn.id}
+                            href={btn.href}
+                            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+                          >
+                            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span>{btn.label}</span>
+                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             );

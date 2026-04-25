@@ -12,18 +12,19 @@ import {
   Loader2,
   Search,
   RefreshCw,
+  Paperclip,
+  X,
 } from "lucide-react";
 
 import { initialPrinters } from "./printerData";
 import ReportModal from "./ReportModal";
-import { isStale, getRelativeTime } from "./PrinterMap";
+import { isStale, getRelativeTime } from "./utils";
 import {
   loadPrintersAction,
   reportPrinterStatusAction,
   shareCreditsAction,
+  uploadShareAttachmentAction,
 } from "./actions";
-import { shareCreditsAction } from "./actions";
-import { isStale, getRelativeTime } from "./utils";
 import type {
   Printer as PrinterType,
   PrinterFilter,
@@ -106,7 +107,9 @@ export default function PrintersPage() {
   const [shareRecipient, setShareRecipient] = useState("");
   const [sharePages, setSharePages] = useState("");
   const [shareMessage, setShareMessage] = useState("");
+  const [shareFile, setShareFile] = useState<File | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
+  const [shareUploadStage, setShareUploadStage] = useState<"idle" | "uploading" | "sending">("idle");
   const [shareResult, setShareResult] = useState<{
     success: boolean;
     error?: string;
@@ -135,7 +138,11 @@ export default function PrintersPage() {
   // ── Filter + search ───────────────────────────────────────────────────────
   const filteredPrinters = useMemo(() => {
     let list = printers;
-    if (filter === "not_working")
+    if (filter === "working")
+      list = list.filter(
+        (p) => p.status === "working" && !isStale(p.last_updated)
+      );
+    else if (filter === "not_working")
       list = list.filter((p) => p.status === "not_working");
     else if (filter === "needs_attention")
       list = list.filter(
@@ -164,7 +171,9 @@ export default function PrintersPage() {
   // Stat counts
   const counts = useMemo(
     () => ({
-      working: printers.filter((p) => p.status === "working").length,
+      working: printers.filter(
+        (p) => p.status === "working" && !isStale(p.last_updated)
+      ).length,
       not_working: printers.filter((p) => p.status === "not_working").length,
       unverified: printers.filter(
         (p) => p.status === "unknown" || isStale(p.last_updated)
@@ -229,17 +238,40 @@ export default function PrintersPage() {
     e.preventDefault();
     setShareLoading(true);
     setShareResult(null);
+
+    // Step 1 — upload attachment (if present) to AgentBucket
+    let attachment: { key: string; fileName: string } | undefined;
+    if (shareFile) {
+      setShareUploadStage("uploading");
+      const fd = new FormData();
+      fd.append("file", shareFile);
+      const upRes = await uploadShareAttachmentAction(fd);
+      if (!upRes.success) {
+        setShareLoading(false);
+        setShareUploadStage("idle");
+        setShareResult({ success: false, error: upRes.error });
+        return;
+      }
+      attachment = { key: upRes.key, fileName: upRes.fileName };
+    }
+
+    // Step 2 — send email with optional attachment
+    setShareUploadStage("sending");
     const result = await shareCreditsAction({
       recipientEmail: shareRecipient,
       pages: Number(sharePages),
       message: shareMessage.trim() || undefined,
+      attachment,
     });
+
     setShareLoading(false);
+    setShareUploadStage("idle");
     setShareResult(result);
     if (result.success) {
       setShareRecipient("");
       setSharePages("");
       setShareMessage("");
+      setShareFile(null);
     }
   }
 
@@ -319,6 +351,7 @@ export default function PrintersPage() {
               {(
                 [
                   { key: "all", label: `All (${printers.length})` },
+                  { key: "working", label: `Working (${counts.working})` },
                   { key: "not_working", label: `Not Working (${counts.not_working})` },
                   { key: "needs_attention", label: `Needs Attention (${counts.unverified})` },
                 ] as const
@@ -517,15 +550,13 @@ export default function PrintersPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Recipient .edu email</label>
+              <label className="mb-1.5 block text-sm font-medium">Recipient email</label>
               <input
                 type="email"
                 value={shareRecipient}
                 onChange={(e) => setShareRecipient(e.target.value)}
                 required
-                placeholder="netid@nyu.edu"
-                pattern=".*\.edu$"
-                title="Must be an .edu email address"
+                placeholder="friend@example.com"
                 className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -558,13 +589,64 @@ export default function PrintersPage() {
               />
             </div>
 
+            {/* File attachment */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                Attach a file to print{" "}
+                <span className="font-normal text-muted-foreground">(optional, ≤10 MB)</span>
+              </label>
+
+              {shareFile ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2.5 dark:border-purple-900 dark:bg-purple-950/30">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Paperclip className="h-4 w-4 shrink-0 text-purple-600" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {shareFile.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {(shareFile.size / 1024).toFixed(0)} KB
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShareFile(null)}
+                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    title="Remove attachment"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input bg-card px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                  <Paperclip className="h-4 w-4" />
+                  <span>Choose a PDF, image, or document…</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.txt,image/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setShareFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+
             <button
               type="submit"
               disabled={shareLoading}
               className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {shareLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
-              {shareLoading ? "Sending…" : "Share Credits"}
+              {shareUploadStage === "uploading"
+                ? "Uploading file…"
+                : shareUploadStage === "sending"
+                ? "Sending email…"
+                : "Share Credits"}
             </button>
           </form>
         </div>
@@ -599,7 +681,7 @@ function LegendMarker({ dotColor, label }: { dotColor: string; label: string }) 
       {/* Mini NYU flag icon */}
       <svg width="14" height="18" viewBox="0 0 14 18">
         <path d="M7 0C3.13 0 0 3.13 0 7C0 12.25 7 18 7 18C7 18 14 12.25 14 7C14 3.13 10.87 0 7 0Z" fill="#57068C"/>
-        <circle cx="11" cy="11" r="3" fill={dotColor} stroke="white" stroke-width="1"/>
+        <circle cx="11" cy="11" r="3" fill={dotColor} stroke="white" strokeWidth="1"/>
       </svg>
       {label}
     </span>

@@ -10,6 +10,7 @@ import {
   Heart,
   MapPinPlus,
   Star,
+  CalendarCheck,
 } from "lucide-react";
 
 import { initialSpaces } from "./spacesData";
@@ -263,6 +264,19 @@ export default function SpacesPage() {
                     I'm Out 👋
                   </button>
                 </div>
+
+                {/* Book / availability link */}
+                {space.bookingUrl && (
+                  <a
+                    href={space.bookingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 flex items-center justify-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 py-1.5 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-300 dark:hover:bg-purple-950/50"
+                  >
+                    <CalendarCheck className="h-3.5 w-3.5" />
+                    Book / Check Availability
+                  </a>
+                )}
               </div>
             ))}
 

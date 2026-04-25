@@ -2,15 +2,29 @@
 
 import { useState } from "react";
 import { PanelLeft, SquarePen } from "lucide-react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Sidebar from "../components/sidebar";
 import ThemeToggle from "../components/theme-toggle";
+import { ChatProvider, useChatReset } from "./chat-context";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function TopBarNewChatButton() {
+  const router = useRouter();
+  const { newChat } = useChatReset();
+  return (
+    <button
+      onClick={() => {
+        newChat();
+        router.push("/");
+      }}
+      className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground/60 transition-colors hover:bg-accent"
+      title="New chat"
+    >
+      <SquarePen className="h-5 w-5" />
+    </button>
+  );
+}
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
@@ -36,13 +50,7 @@ export default function DashboardLayout({
           >
             <PanelLeft className="h-5 w-5" />
           </button>
-          <Link
-            href="/"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground/60 transition-colors hover:bg-accent"
-            title="New chat"
-          >
-            <SquarePen className="h-5 w-5" />
-          </Link>
+          <TopBarNewChatButton />
         </div>
 
         <main className="flex-1 overflow-y-auto">{children}</main>
@@ -50,5 +58,17 @@ export default function DashboardLayout({
 
       <ThemeToggle />
     </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ChatProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </ChatProvider>
   );
 }

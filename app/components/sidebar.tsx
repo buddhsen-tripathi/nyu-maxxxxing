@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   MessageCircle,
   MapPin,
@@ -10,13 +10,16 @@ import {
   Printer,
   PanelLeft,
   SquarePen,
+  Handshake,
 } from "lucide-react";
+import { useChatReset } from "../(dashboard)/chat-context";
 
 const navItems = [
   { label: "Chat", href: "/", icon: MessageCircle },
   { label: "Spaces", href: "/spaces", icon: MapPin },
   { label: "Exchange", href: "/exchange", icon: ArrowLeftRight },
   { label: "Mentoring", href: "/mentoring", icon: Users },
+  { label: "Partner", href: "/partner", icon: Handshake },
   { label: "Printers", href: "/printers", icon: Printer },
 ];
 
@@ -28,6 +31,8 @@ export default function Sidebar({
   onToggle: () => void;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { newChat } = useChatReset();
 
   return (
     <>
@@ -60,13 +65,16 @@ export default function Sidebar({
             >
               <PanelLeft className="h-5 w-5" />
             </button>
-            <Link
-              href="/"
+            <button
+              onClick={() => {
+                newChat();
+                router.push("/");
+              }}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent"
               title="New chat"
             >
               <SquarePen className="h-5 w-5" />
-            </Link>
+            </button>
           </div>
 
           {/* Navigation */}
