@@ -34,4 +34,5 @@ export interface StudySpace {
   tip?: string;
   favorite: boolean;
   submittedBy?: string; // present for hidden gems
+  bookingUrl?: string; // NYU LibCal / EMS booking link
 }

@@ -1,148 +1,331 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { db } from "@/db";
-import { spaces, listings, mentors, printers, printerReports } from "@/db/schema";
-import { eq, ilike, and, arrayContains } from "drizzle-orm";
+import { initialSpaces } from "@/app/(dashboard)/spaces/spacesData";
+import { initialPrinters } from "@/app/(dashboard)/printers/printerData";
+import { initialListings } from "@/app/(dashboard)/exchange/listingsData";
+import { initialMentors } from "@/app/(dashboard)/mentoring/mentorsData";
+import { isStale } from "@/app/(dashboard)/printers/utils";
+
+function ciIncludes(haystack: string, needle: string) {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
 
 export const agentTools = {
   searchSpaces: tool({
     description:
-      "Search for study spaces on campus. Can filter by building name, noise level, or tags like Wi-Fi, Power Outlets, Quiet, etc.",
+      "Search NYU study spaces. Returns name, building, floor, hours, capacity, noise level, amenities, and a tip when available. Use to recommend places to study, group rooms, quiet libraries, hidden gems, etc.",
     inputSchema: z.object({
-      building: z.string().optional().describe("Building name to filter by (partial match)"),
       noise: z
-        .enum(["Silent", "Low", "Moderate", "Loud"])
+        .enum(["silent", "quiet", "moderate", "loud"])
         .optional()
-        .describe("Maximum noise level"),
-      tag: z.string().optional().describe("A tag to filter by, e.g. 'Wi-Fi', 'Power Outlets'"),
+        .describe("Filter by maximum noise level"),
+      type: z
+        .enum(["library", "study_room", "lounge", "lab", "outdoor", "hidden_gem"])
+        .optional()
+        .describe("Filter by space type"),
+      building: z.string().optional().describe("Match against building name (case-insensitive substring)"),
+      amenity: z
+        .string()
+        .optional()
+        .describe("Required amenity, e.g. 'Wi-Fi', 'Power Outlets', 'Whiteboard', 'Printers'"),
+      limit: z.number().int().min(1).max(20).optional().describe("Max results to return (default 8)"),
     }),
-    execute: async ({ building, noise, tag }) => {
-      const conditions = [];
-      if (building) conditions.push(ilike(spaces.building, `%${building}%`));
-      if (noise) conditions.push(eq(spaces.noise, noise));
-      if (tag) conditions.push(arrayContains(spaces.tags, [tag]));
+    execute: async ({ noise, type, building, amenity, limit = 8 }) => {
+      const noiseRank: Record<string, number> = { silent: 0, quiet: 1, moderate: 2, loud: 3 };
 
-      const results = await db
-        .select()
-        .from(spaces)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .limit(10);
+      let results = initialSpaces.filter((s) => {
+        if (noise && noiseRank[s.noise] > noiseRank[noise]) return false;
+        if (type && s.type !== type) return false;
+        if (building && !ciIncludes(s.building, building)) return false;
+        if (amenity && !s.amenities.some((a) => ciIncludes(a, amenity))) return false;
+        return true;
+      });
 
-      if (results.length === 0) return { found: 0, message: "No study spaces matched your filters." };
-      return { found: results.length, spaces: results };
+      results = results.slice(0, limit);
+      if (results.length === 0)
+        return { found: 0, message: "No study spaces matched. Try loosening filters." };
+
+      return {
+        found: results.length,
+        spaces: results.map((s) => ({
+          id: s.id,
+          name: s.name,
+          building: s.building,
+          floor: s.floor,
+          address: s.address,
+          noise: s.noise,
+          type: s.type,
+          amenities: s.amenities,
+          hours: s.hours,
+          capacity: s.capacity,
+          tip: s.tip,
+        })),
+      };
     },
   }),
 
   searchListings: tool({
     description:
-      "Search the student exchange marketplace for items. Can filter by category and whether the listing is active.",
+      "Search the Violet Exchange marketplace. Returns title, category, price, condition, seller, and how recently it was posted.",
     inputSchema: z.object({
       category: z
         .enum(["Textbooks", "Furniture", "Meal Swipes", "Electronics", "Other"])
         .optional()
-        .describe("Category to filter by"),
-      query: z.string().optional().describe("Search term to match against title or description"),
+        .describe("Filter by category"),
+      query: z.string().optional().describe("Match against listing title (case-insensitive substring)"),
+      freeOnly: z.boolean().optional().describe("Only return free items"),
+      limit: z.number().int().min(1).max(20).optional().describe("Max results to return (default 8)"),
     }),
-    execute: async ({ category, query }) => {
-      const conditions = [eq(listings.active, true)];
-      if (category) conditions.push(eq(listings.category, category));
-      if (query) conditions.push(ilike(listings.title, `%${query}%`));
+    execute: async ({ category, query, freeOnly, limit = 8 }) => {
+      let results = initialListings.filter((l) => {
+        if (category && l.category !== category) return false;
+        if (query && !ciIncludes(l.title, query)) return false;
+        if (freeOnly && l.price.toLowerCase() !== "free") return false;
+        return true;
+      });
 
-      const results = await db
-        .select()
-        .from(listings)
-        .where(and(...conditions))
-        .limit(10);
+      results = results.slice(0, limit);
+      if (results.length === 0)
+        return { found: 0, message: "No listings matched. Try broadening the search." };
 
-      if (results.length === 0) return { found: 0, message: "No active listings matched." };
       return { found: results.length, listings: results };
-    },
-  }),
-
-  createListing: tool({
-    description:
-      "Create a new listing on the student exchange marketplace. Use this when a student wants to sell or give away an item.",
-    inputSchema: z.object({
-      title: z.string().describe("Item title"),
-      description: z.string().optional().describe("Item description"),
-      category: z.enum(["Textbooks", "Furniture", "Meal Swipes", "Electronics", "Other"]),
-      price: z.string().describe("Price as a string, e.g. 'Free', '$35'"),
-      condition: z.enum(["Like New", "Good", "Fair", "N/A"]).optional(),
-      sellerName: z.string().describe("Seller's name"),
-      contactEmail: z.string().optional().describe("Contact email"),
-    }),
-    execute: async (params) => {
-      const [created] = await db.insert(listings).values(params).returning();
-      return { success: true, listing: created };
     },
   }),
 
   searchMentors: tool({
     description:
-      "Find peer mentors. Can filter by topic (e.g. a course name or subject) or only show available mentors.",
+      "Find peer mentors. Returns name, major, topics, rating, session count, availability, and bio. Topics include things like 'Interview Prep', 'MCAT Prep', 'Machine Learning', specific courses.",
     inputSchema: z.object({
-      topic: z.string().optional().describe("Topic or course to filter by (partial match on topics array)"),
-      availableOnly: z.boolean().optional().describe("Only return available mentors"),
+      topic: z
+        .string()
+        .optional()
+        .describe(
+          "Match against any of the mentor's topics (case-insensitive substring). E.g. 'machine learning', 'interview', 'mcat'"
+        ),
+      majorIncludes: z
+        .string()
+        .optional()
+        .describe("Match against the mentor's major (case-insensitive substring), e.g. 'Computer Science'"),
+      availableOnly: z.boolean().optional().describe("Only return mentors currently available"),
+      limit: z.number().int().min(1).max(20).optional().describe("Max results (default 6)"),
     }),
-    execute: async ({ topic, availableOnly }) => {
-      const conditions = [];
-      if (availableOnly) conditions.push(eq(mentors.available, true));
-      if (topic) conditions.push(arrayContains(mentors.topics, [topic]));
+    execute: async ({ topic, majorIncludes, availableOnly, limit = 6 }) => {
+      let results = initialMentors.filter((m) => {
+        if (availableOnly && !m.available) return false;
+        if (topic && !m.topics.some((t) => ciIncludes(t, topic))) return false;
+        if (majorIncludes && !ciIncludes(m.major, majorIncludes)) return false;
+        return true;
+      });
 
-      const results = await db
-        .select()
-        .from(mentors)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .limit(10);
+      results = results.slice(0, limit);
+      if (results.length === 0)
+        return { found: 0, message: "No mentors matched. Try broader topics." };
 
-      if (results.length === 0) return { found: 0, message: "No mentors matched your filters." };
       return { found: results.length, mentors: results };
     },
   }),
 
   checkPrinters: tool({
     description:
-      "Check the status of campus printers. Can filter by building or status (online, offline, issue).",
+      "Check NYU print station status. Each printer has a status ('working', 'not_working', or 'unknown'), a building, floor, type (B&W or Color Laser), and when it was last reported. A printer is 'stale' if no one has reported in over 48 hours.",
     inputSchema: z.object({
-      building: z.string().optional().describe("Building name to filter by (partial match)"),
-      status: z.enum(["online", "offline", "issue"]).optional().describe("Filter by status"),
+      status: z
+        .enum(["working", "not_working", "unknown"])
+        .optional()
+        .describe("Filter by status"),
+      building: z.string().optional().describe("Match against building (case-insensitive substring)"),
+      colorOnly: z.boolean().optional().describe("Only return color laser printers"),
+      limit: z.number().int().min(1).max(30).optional().describe("Max results (default 15)"),
     }),
-    execute: async ({ building, status }) => {
-      const conditions = [];
-      if (building) conditions.push(ilike(printers.building, `%${building}%`));
-      if (status) conditions.push(eq(printers.status, status));
+    execute: async ({ status, building, colorOnly, limit = 15 }) => {
+      let results = initialPrinters.filter((p) => {
+        if (status && p.status !== status) return false;
+        if (building && !ciIncludes(p.building, building)) return false;
+        if (colorOnly && !ciIncludes(p.printer_type, "color")) return false;
+        return true;
+      });
 
-      const results = await db
-        .select()
-        .from(printers)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .limit(20);
+      results = results.slice(0, limit);
+      if (results.length === 0)
+        return { found: 0, message: "No printers matched your filters." };
 
-      if (results.length === 0) return { found: 0, message: "No printers matched your filters." };
-      return { found: results.length, printers: results };
+      return {
+        found: results.length,
+        printers: results.map((p) => ({
+          id: p.id,
+          name: p.name,
+          building: p.building,
+          floor: p.floor,
+          type: p.printer_type,
+          status: p.status,
+          lastUpdated: p.last_updated,
+          stale: isStale(p.last_updated),
+          lastReportedBy: p.last_reported_by,
+        })),
+      };
     },
   }),
 
-  reportPrinterIssue: tool({
+  listHiddenGems: tool({
     description:
-      "Report an issue with a campus printer. Requires the printer ID and a description of the issue.",
+      "List user-submitted 'hidden gem' study spots — lesser-known places students have shared. Use when the user wants to discover something off the beaten path.",
     inputSchema: z.object({
-      printerId: z.number().describe("The ID of the printer with the issue"),
-      issue: z.string().describe("Description of the issue"),
+      limit: z.number().int().min(1).max(20).optional().describe("Max results (default 8)"),
     }),
-    execute: async ({ printerId, issue }) => {
-      const [printer] = await db.select().from(printers).where(eq(printers.id, printerId)).limit(1);
-      if (!printer) return { success: false, message: "Printer not found." };
+    execute: async ({ limit = 8 }) => {
+      const results = initialSpaces
+        .filter((s) => s.type === "hidden_gem")
+        .slice(0, limit);
 
-      const [report] = await db.insert(printerReports).values({ printerId, issue }).returning();
-
-      await db.update(printers).set({ status: "issue", issue }).where(eq(printers.id, printerId));
+      if (results.length === 0)
+        return { found: 0, message: "No hidden gems submitted yet." };
 
       return {
-        success: true,
-        report,
-        message: `Issue reported for ${printer.name}. Status updated to "issue".`,
+        found: results.length,
+        spaces: results.map((s) => ({
+          id: s.id,
+          name: s.name,
+          building: s.building,
+          floor: s.floor,
+          noise: s.noise,
+          amenities: s.amenities,
+          hours: s.hours,
+          tip: s.tip,
+          submittedBy: s.submittedBy,
+        })),
       };
+    },
+  }),
+
+  findNearbyPrinters: tool({
+    description:
+      "Find printers near a building or landmark. Use when a student says something like 'is there a printer near Bobst' or 'closest printer to Tandon'. Matches the building name (case-insensitive substring).",
+    inputSchema: z.object({
+      landmark: z
+        .string()
+        .describe("Building or landmark name to match against, e.g. 'Bobst', 'Tandon', 'Kimmel'"),
+      workingOnly: z
+        .boolean()
+        .optional()
+        .describe("Only return printers reported as working"),
+      limit: z.number().int().min(1).max(15).optional().describe("Max results (default 5)"),
+    }),
+    execute: async ({ landmark, workingOnly, limit = 5 }) => {
+      let results = initialPrinters.filter(
+        (p) =>
+          ciIncludes(p.building, landmark) ||
+          ciIncludes(p.name, landmark)
+      );
+      if (workingOnly) results = results.filter((p) => p.status === "working");
+      results = results.slice(0, limit);
+
+      if (results.length === 0)
+        return {
+          found: 0,
+          message: `No printers found near "${landmark}". Try a different landmark.`,
+        };
+
+      return {
+        found: results.length,
+        printers: results.map((p) => ({
+          id: p.id,
+          name: p.name,
+          building: p.building,
+          floor: p.floor,
+          type: p.printer_type,
+          status: p.status,
+          stale: isStale(p.last_updated),
+        })),
+      };
+    },
+  }),
+
+  listStalePrinters: tool({
+    description:
+      "List printers whose status hasn't been reported in over 48 hours. Use to nudge the user to verify a printer if they're nearby, or when they ask which printers need attention.",
+    inputSchema: z.object({
+      limit: z.number().int().min(1).max(20).optional().describe("Max results (default 10)"),
+    }),
+    execute: async ({ limit = 10 }) => {
+      const results = initialPrinters
+        .filter((p) => isStale(p.last_updated))
+        .slice(0, limit);
+
+      if (results.length === 0)
+        return { found: 0, message: "All printers have recent reports — nothing stale." };
+
+      return {
+        found: results.length,
+        printers: results.map((p) => ({
+          id: p.id,
+          name: p.name,
+          building: p.building,
+          floor: p.floor,
+          type: p.printer_type,
+          lastStatus: p.status,
+          lastUpdated: p.last_updated,
+        })),
+      };
+    },
+  }),
+
+  navigateTo: tool({
+    description:
+      "Suggest an in-app navigation. Call this AFTER answering the user when there's a natural follow-up action they'd want to take in the UI: viewing all results in a tab, submitting a hidden gem, listing an item for sale, reporting a printer issue, etc. The UI renders this as a clickable button.",
+    inputSchema: z.object({
+      tab: z
+        .enum(["spaces", "exchange", "mentoring", "printers", "home"])
+        .describe("Which tab to link to"),
+      label: z
+        .string()
+        .optional()
+        .describe(
+          "Button label override. Default labels are 'Open Spaces', 'Open Violet Exchange', etc. Override when a more specific call-to-action fits, e.g. 'Submit a hidden gem', 'Report this printer'."
+        ),
+    }),
+    execute: async ({ tab, label }) => {
+      const map: Record<string, { href: string; default: string }> = {
+        home: { href: "/", default: "Open Chat" },
+        spaces: { href: "/spaces", default: "Open Study Spaces" },
+        exchange: { href: "/exchange", default: "Open Violet Exchange" },
+        mentoring: { href: "/mentoring", default: "Open Peer Mentoring" },
+        printers: { href: "/printers", default: "Open Printers" },
+      };
+      const m = map[tab];
+      return { tab, href: m.href, label: label ?? m.default };
+    },
+  }),
+
+  sharePrintCredits: tool({
+    description:
+      "Send NYU print credits to another student via email. Use only when the user explicitly asks to share or send credits and provides the recipient email and number of pages. Confirm details with the user before calling.",
+    inputSchema: z.object({
+      recipientEmail: z.string().email().describe("Recipient's email address"),
+      pages: z.number().int().min(1).max(500).describe("Number of pages to share"),
+      message: z.string().optional().describe("Optional personal message to include"),
+    }),
+    execute: async ({ recipientEmail, pages, message }) => {
+      try {
+        const { shareCreditsAction } = await import(
+          "@/app/(dashboard)/printers/actions"
+        );
+        const result = await shareCreditsAction({ recipientEmail, pages, message });
+        if (result.success) {
+          return {
+            success: true,
+            message: `Sent ${pages} print credit${pages !== 1 ? "s" : ""} to ${recipientEmail}.`,
+          };
+        }
+        return { success: false, error: result.error ?? "Failed to send credits." };
+      } catch (err) {
+        return {
+          success: false,
+          error:
+            err instanceof Error
+              ? `Sharing is currently unavailable: ${err.message}`
+              : "Sharing is currently unavailable.",
+        };
+      }
     },
   }),
 };

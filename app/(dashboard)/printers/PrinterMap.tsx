@@ -1,11 +1,9 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect } from "react";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import { useEffect, useState } from "react";
 import type { Printer, PrinterStatus } from "./types";
 import { isStale, getRelativeTime } from "./utils";
@@ -25,23 +23,6 @@ const TILES = {
   },
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const STALE_HOURS = 48;
-
-export function isStale(isoString: string): boolean {
-  return Date.now() - new Date(isoString).getTime() > STALE_HOURS * 3_600_000;
-}
-
-export function getRelativeTime(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diff / 60_000);
-  const hrs = Math.floor(diff / 3_600_000);
-  const days = Math.floor(diff / 86_400_000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${days}d ago`;
 function useTheme(): "dark" | "light" {
   const [theme, setTheme] = useState<"dark" | "light">("light");
   useEffect(() => {
@@ -52,13 +33,16 @@ function useTheme(): "dark" | "light" {
     }
     check();
     const obs = new MutationObserver(check);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
     return () => obs.disconnect();
   }, []);
   return theme;
 }
 
-// Status: NYU purple = working, red = broken, amber = unknown
+// Status: green = working, red = broken, amber = unknown
 const STATUS_RING: Record<PrinterStatus, string> = {
   working: "#22c55e",
   not_working: "#ef4444",
@@ -76,9 +60,10 @@ const STATUS_LABEL: Record<PrinterStatus, string> = {
 // A small status dot (green/red/amber) sits bottom-right to indicate live status.
 
 function makeNYUMarker(status: PrinterStatus, stale: boolean): L.DivIcon {
-  const dotColor = stale && status !== "not_working"
-    ? "#f97316"          // orange = needs verification
-    : STATUS_RING[status];
+  const dotColor =
+    stale && status !== "not_working"
+      ? "#f97316" // orange = needs verification
+      : STATUS_RING[status];
 
   const torchSvg = `
     <svg width="44" height="58" viewBox="0 0 44 58" xmlns="http://www.w3.org/2000/svg">
@@ -90,20 +75,14 @@ function makeNYUMarker(status: PrinterStatus, stale: boolean): L.DivIcon {
       <rect x="8" y="6" width="28" height="28" rx="3" fill="white"/>
 
       <!-- ── NYU Torch in purple on white ── -->
-      <!-- Left outer flame -->
       <path d="M15,11 C12,13.5 12,17.5 14.5,18.5 C14.5,16 15,14 15,11Z" fill="#57068C" opacity="0.75"/>
-      <!-- Right outer flame -->
       <path d="M29,11 C32,13.5 32,17.5 29.5,18.5 C29.5,16 29,14 29,11Z" fill="#57068C" opacity="0.75"/>
-      <!-- Center main flame -->
       <path d="M22,8 C24.5,10.5 25.5,14 23.5,17.5
                C22.8,15.5 22.5,14 22,17
                C21.5,14 21.2,15.5 20.5,17.5
                C18.5,14 19.5,10.5 22,8Z" fill="#57068C"/>
-      <!-- Torch cup (wider receptacle) -->
       <path d="M15.5,18.5 L16.5,22 L27.5,22 L28.5,18.5Z" fill="#57068C"/>
-      <!-- Torch handle -->
       <rect x="20" y="22" width="4" height="8" rx="1" fill="#57068C"/>
-      <!-- Torch base cap -->
       <rect x="17.5" y="30" width="9" height="2" rx="1" fill="#57068C"/>
 
       <!-- Status dot — bottom-right corner of white square -->
@@ -158,8 +137,11 @@ interface Props {
 const MAP_CENTER: [number, number] = [40.718, -73.993];
 const MAP_ZOOM = 14;
 
-export default function PrinterMap({ printers, flyTarget, onReportStatus }: Props) {
-export default function PrinterMap({ printers, onReportStatus }: Props) {
+export default function PrinterMap({
+  printers,
+  flyTarget,
+  onReportStatus,
+}: Props) {
   const theme = useTheme();
   const tile = TILES[theme];
 
@@ -200,24 +182,6 @@ export default function PrinterMap({ printers, onReportStatus }: Props) {
           );
         })}
       </MarkerClusterGroup>
-      {printers.map((printer) => {
-        const stale = isStale(printer.last_updated);
-        return (
-          <Marker
-            key={printer.id}
-            position={[printer.latitude, printer.longitude]}
-            icon={makeFlagIcon(printer.status, stale)}
-          >
-            <Popup minWidth={210} maxWidth={250}>
-              <PopupCard
-                printer={printer}
-                stale={stale}
-                onReport={() => onReportStatus(printer.id)}
-              />
-            </Popup>
-          </Marker>
-        );
-      })}
     </MapContainer>
   );
 }
@@ -238,11 +202,18 @@ function PopupCard({
   return (
     <div style={{ fontFamily: "Arial, sans-serif", minWidth: 205 }}>
       {/* NYU branding strip */}
-      <div style={{
-        background: "#57068C", color: "white", fontWeight: 700,
-        fontSize: 11, padding: "4px 8px", borderRadius: "4px 4px 0 0",
-        marginBottom: 8, letterSpacing: "0.5px",
-      }}>
+      <div
+        style={{
+          background: "#57068C",
+          color: "white",
+          fontWeight: 700,
+          fontSize: 11,
+          padding: "4px 8px",
+          borderRadius: "4px 4px 0 0",
+          marginBottom: 8,
+          letterSpacing: "0.5px",
+        }}
+      >
         NYU Print Station
       </div>
 
@@ -254,26 +225,53 @@ function PopupCard({
       </p>
 
       {/* Status badge */}
-      <div style={{
-        display: "inline-flex", alignItems: "center", gap: 5,
-        padding: "3px 9px", borderRadius: 99,
-        background: dotColor + "18", border: `1px solid ${dotColor}55`,
-        fontSize: 12, fontWeight: 600, color: dotColor, marginBottom: 7,
-      }}>
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "3px 9px",
+          borderRadius: 99,
+          background: dotColor + "18",
+          border: `1px solid ${dotColor}55`,
+          fontSize: 12,
+          fontWeight: 600,
+          color: dotColor,
+          marginBottom: 7,
+        }}
+      >
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: dotColor,
+            display: "inline-block",
+          }}
+        />
         {STATUS_LABEL[printer.status]}
       </div>
 
       {/* Stale warning */}
       {stale && (
-        <div style={{
-          display: "flex", gap: 5, alignItems: "flex-start",
-          padding: "4px 8px", borderRadius: 6,
-          background: "#fff7ed", border: "1px solid #fed7aa",
-          fontSize: 11, color: "#c2410c", marginBottom: 7,
-        }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 5,
+            alignItems: "flex-start",
+            padding: "4px 8px",
+            borderRadius: 6,
+            background: "#fff7ed",
+            border: "1px solid #fed7aa",
+            fontSize: 11,
+            color: "#c2410c",
+            marginBottom: 7,
+          }}
+        >
           <span>⚠️</span>
-          <span>Not verified since {getRelativeTime(printer.last_updated)} — needs a check</span>
+          <span>
+            Not verified since {getRelativeTime(printer.last_updated)} — needs a check
+          </span>
         </div>
       )}
 
@@ -291,9 +289,15 @@ function PopupCard({
       <button
         onClick={onReport}
         style={{
-          width: "100%", padding: "7px 0", borderRadius: 7,
-          background: "#57068C", color: "white",
-          fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer",
+          width: "100%",
+          padding: "7px 0",
+          borderRadius: 7,
+          background: "#57068C",
+          color: "white",
+          fontSize: 12,
+          fontWeight: 700,
+          border: "none",
+          cursor: "pointer",
           letterSpacing: "0.3px",
         }}
         onMouseOver={(e) => ((e.target as HTMLButtonElement).style.background = "#3d0563")}

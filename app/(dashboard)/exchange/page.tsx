@@ -1,55 +1,5 @@
 import { Tag, BookOpen, Sofa, UtensilsCrossed, Plus } from "lucide-react";
-
-const listings = [
-  {
-    title: "Calculus: Early Transcendentals (8th Ed)",
-    category: "Textbooks",
-    price: "$35",
-    condition: "Good",
-    seller: "Alex M.",
-    posted: "2 hours ago",
-  },
-  {
-    title: "IKEA KALLAX Shelf Unit",
-    category: "Furniture",
-    price: "$40",
-    condition: "Like New",
-    seller: "Jordan K.",
-    posted: "5 hours ago",
-  },
-  {
-    title: "5 Meal Swipes - Lipton",
-    category: "Meal Swipes",
-    price: "$20",
-    condition: "N/A",
-    seller: "Sam R.",
-    posted: "1 hour ago",
-  },
-  {
-    title: "Introduction to Algorithms (CLRS)",
-    category: "Textbooks",
-    price: "$25",
-    condition: "Fair",
-    seller: "Priya D.",
-    posted: "1 day ago",
-  },
-  {
-    title: "Desk Lamp - LED Adjustable",
-    category: "Furniture",
-    price: "Free",
-    condition: "Good",
-    seller: "Chris T.",
-    posted: "3 hours ago",
-  },
-  {
-    title: "10 Meal Swipes - Palladium",
-    category: "Meal Swipes",
-    price: "$35",
-    condition: "N/A",
-    seller: "Maya L.",
-    posted: "30 min ago",
-  },
-];
+import { initialListings as listings } from "./listingsData";
 
 const categoryIcons: Record<string, typeof BookOpen> = {
   Textbooks: BookOpen,

@@ -32,7 +32,7 @@ npm run db:studio    # Visual DB browser at https://local.drizzle.studio
 **File storage** (`lib/agent-bucket.ts`):
 We use Bucket0 AgentBucket as our object storage instead of S3 — same upload/download/list/delete model but no AWS config, no bucket policies, no SDK setup. Just an HTTP API with a Bearer token.
 
-The adapter in `lib/agent-bucket.ts` wraps the AgentBucket REST API (`https://bucket0.com/api/agent-bucket`) into typed functions. It is server-side only (reads `AGENT_BUCKET_KEY` from env, must not be imported in client components). Usage:
+The adapter in `lib/agent-bucket.ts` wraps the AgentBucket REST API (`https://bucket0.com/api/agent-bucket`) into typed functions. It is server-side only (reads `BUCKET0_AGENT_BUCKET` from env, must not be imported in client components). Usage:
 - `upload(file, "exchange/photos/item-42.jpg")` — accepts `Blob` or `Buffer`, uses multipart form upload. Folders in the path are auto-created.
 - `list(page?, pageSize?)` — paginated file listing.
 - `download(key)` — returns raw `ArrayBuffer` by file key.
@@ -49,7 +49,7 @@ Use this for any user-uploaded content (listing photos, mentor profile images, d
 
 Defined in `.env.local` (gitignored). See `.env.example` for the template:
 - `DATABASE_URL` — Neon Postgres connection string
-- `AGENT_BUCKET_KEY` — Bucket0 API key (starts with `b0ak_`)
+- `BUCKET0_AGENT_BUCKET` — Bucket0 API key (starts with `b0ak_`)
 
 ## Path aliases
 

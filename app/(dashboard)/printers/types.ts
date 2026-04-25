@@ -1,5 +1,5 @@
 export type PrinterStatus = "working" | "not_working" | "unknown";
-export type PrinterFilter = "all" | "not_working" | "needs_attention";
+export type PrinterFilter = "all" | "working" | "not_working" | "needs_attention";
 
 export interface Printer {
   id: string;
