@@ -1724,4 +1724,149 @@ export const agentTools = {
       }
     },
   }),
+
+  // ─── Web search scoped to NYU domains ────────────────────────────────────
+  // Backed by Tavily (set TAVILY_API_KEY) or Brave Search (set
+  // BRAVE_SEARCH_API_KEY) — whichever is configured. Falls back to a clear
+  // "not configured" message so the agent can surface the issue.
+  findNyuCourse: tool({
+    description:
+      "Web-search NYU's public sites for course details, descriptions, syllabi, prerequisites, instructor names, and bulletin pages. Works across all NYU schools (CAS, Tandon, Stern, Tisch, Steinhardt, Gallatin, GSAS, Courant, Wagner, Silver, Law, etc.). Use when a user asks about a specific course code (e.g. 'CSCI-UA 480', 'CS-GY 6923'), a course name ('Operating Systems', 'Machine Learning'), or wants to find what NYU offers in a topic ('any data viz courses at Tisch?'). Returns the top web results with title, URL, and snippet.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .min(2)
+        .describe(
+          "What to search for. Best results from a course code (e.g. 'CS-GY 6923') or a course title; you can also pass a topic or school. Don't include 'site:nyu.edu' — the tool adds that itself."
+        ),
+      school: z
+        .string()
+        .optional()
+        .describe(
+          "Optional school hint to bias results, e.g. 'Tandon', 'Stern', 'Courant', 'Steinhardt'."
+        ),
+      limit: z.number().int().min(1).max(8).optional().describe("Max results (default 5)"),
+    }),
+    execute: async ({ query, school, limit = 5 }) => {
+      const tavilyKey = process.env.TAVILY_API_KEY;
+      const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+
+      if (!tavilyKey && !braveKey) {
+        return {
+          found: 0,
+          message:
+            "Course web search isn't configured (no TAVILY_API_KEY or BRAVE_SEARCH_API_KEY set). Direct the user to bulletins.nyu.edu or Albert (albert.nyu.edu) for the official catalog.",
+        };
+      }
+
+      // Boost the query with school hint and trim duplicate scoping the user might have added
+      const cleaned = query.replace(/\bsite:[^\s]+/gi, "").trim();
+      const augmented = school ? `${cleaned} ${school}` : cleaned;
+
+      const NYU_DOMAINS = [
+        "nyu.edu",
+        "bulletins.nyu.edu",
+        "engineering.nyu.edu",
+        "stern.nyu.edu",
+        "cs.nyu.edu",
+        "cims.nyu.edu",
+        "tisch.nyu.edu",
+        "steinhardt.nyu.edu",
+        "gallatin.nyu.edu",
+        "gsas.nyu.edu",
+        "wagner.nyu.edu",
+        "law.nyu.edu",
+      ];
+
+      try {
+        if (tavilyKey) {
+          const res = await fetch("https://api.tavily.com/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              api_key: tavilyKey,
+              query: augmented,
+              search_depth: "basic",
+              include_domains: NYU_DOMAINS,
+              max_results: limit,
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            return {
+              found: 0,
+              message: `Tavily search failed (${res.status}): ${body.slice(0, 120)}`,
+            };
+          }
+          const data = (await res.json()) as {
+            results?: Array<{ title: string; url: string; content: string }>;
+            answer?: string;
+          };
+          const results = data.results ?? [];
+          if (results.length === 0)
+            return {
+              found: 0,
+              message: `No NYU pages matched "${query}". Try a course code (e.g. 'CSCI-UA 480') or a different keyword.`,
+            };
+          return {
+            found: results.length,
+            answer: data.answer ?? undefined,
+            results: results.map((r) => ({
+              title: r.title,
+              url: r.url,
+              snippet: r.content?.slice(0, 280) ?? "",
+            })),
+          };
+        }
+
+        // Brave fallback — appends site filter to the query
+        const siteFilter = NYU_DOMAINS.map((d) => `site:${d}`).join(" OR ");
+        const braveQuery = `${augmented} (${siteFilter})`;
+        const url = new URL("https://api.search.brave.com/res/v1/web/search");
+        url.searchParams.set("q", braveQuery);
+        url.searchParams.set("count", String(limit));
+        url.searchParams.set("safesearch", "moderate");
+        const res = await fetch(url.toString(), {
+          headers: {
+            Accept: "application/json",
+            "X-Subscription-Token": braveKey!,
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          return {
+            found: 0,
+            message: `Brave search failed (${res.status}): ${body.slice(0, 120)}`,
+          };
+        }
+        const data = (await res.json()) as {
+          web?: { results?: Array<{ title: string; url: string; description: string }> };
+        };
+        const results = data.web?.results ?? [];
+        if (results.length === 0)
+          return {
+            found: 0,
+            message: `No NYU pages matched "${query}". Try a course code (e.g. 'CSCI-UA 480') or a different keyword.`,
+          };
+        return {
+          found: results.length,
+          results: results.slice(0, limit).map((r) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.description?.slice(0, 280) ?? "",
+          })),
+        };
+      } catch (err) {
+        return {
+          found: 0,
+          message:
+            err instanceof Error
+              ? `Course search failed: ${err.message}`
+              : "Course search failed.",
+        };
+      }
+    },
+  }),
 };
