@@ -140,6 +140,7 @@ function PulseStyle() {
 interface Props {
   spaces: StudySpace[];
   onCheckin: (spaceId: string) => void;
+  onCheckout: (spaceId: string) => void;
   onToggleFavorite: (spaceId: string) => void;
 }
 
@@ -149,6 +150,7 @@ const MAP_ZOOM = 16;
 export default function SpacesMap({
   spaces,
   onCheckin,
+  onCheckout,
   onToggleFavorite,
 }: Props) {
   const theme = useTheme();
@@ -187,6 +189,7 @@ export default function SpacesMap({
               <PopupCard
                 space={space}
                 onCheckin={() => onCheckin(space.id)}
+                onCheckout={() => onCheckout(space.id)}
                 onToggleFavorite={() => onToggleFavorite(space.id)}
               />
             </Popup>
@@ -202,10 +205,12 @@ export default function SpacesMap({
 function PopupCard({
   space,
   onCheckin,
+  onCheckout,
   onToggleFavorite,
 }: {
   space: StudySpace;
   onCheckin: () => void;
+  onCheckout: () => void;
   onToggleFavorite: () => void;
 }) {
   const noiseColor = NOISE_COLOR[space.noise];
@@ -300,6 +305,27 @@ function PopupCard({
           onMouseOut={(e) => ((e.target as HTMLButtonElement).style.background = "#7c3aed")}
         >
           📍 I'm Here
+        </button>
+        <button
+          onClick={onCheckout}
+          disabled={space.checkins === 0}
+          style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+            gap: 5, padding: "7px 0", borderRadius: 8,
+            background: "#f9fafb", color: space.checkins === 0 ? "#cbd5e1" : "#374151",
+            fontSize: 12, fontWeight: 600,
+            border: "1px solid #e5e7eb",
+            cursor: space.checkins === 0 ? "not-allowed" : "pointer",
+            opacity: space.checkins === 0 ? 0.5 : 1,
+          }}
+          onMouseOver={(e) => {
+            if (space.checkins !== 0)
+              (e.target as HTMLButtonElement).style.background = "#f3f4f6";
+          }}
+          onMouseOut={(e) => ((e.target as HTMLButtonElement).style.background = "#f9fafb")}
+          title={space.checkins === 0 ? "No one checked in yet" : "Check out"}
+        >
+          👋 I'm Out
         </button>
         <button
           onClick={onToggleFavorite}

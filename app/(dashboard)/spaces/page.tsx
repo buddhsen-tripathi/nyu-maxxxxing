@@ -67,6 +67,8 @@ export default function SpacesPage() {
         );
       case "outdoor":
         return spaces.filter((s) => s.type === "outdoor");
+      case "hidden_gems":
+        return spaces.filter((s) => s.type === "hidden_gem");
       case "favorites":
         return spaces.filter((s) => s.favorite);
       default:
@@ -78,6 +80,14 @@ export default function SpacesPage() {
   function handleCheckin(id: string) {
     setSpaces((prev) =>
       prev.map((s) => (s.id === id ? { ...s, checkins: s.checkins + 1 } : s))
+    );
+  }
+
+  function handleCheckout(id: string) {
+    setSpaces((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, checkins: Math.max(0, s.checkins - 1) } : s
+      )
     );
   }
 
@@ -103,6 +113,7 @@ export default function SpacesPage() {
     { key: "group", label: "Group Work" },
     { key: "zoom", label: "Zoom-Friendly" },
     { key: "outdoor", label: "Outdoor" },
+    { key: "hidden_gems", label: `Hidden Gems (${gemCount})` },
     { key: "favorites", label: `Favorites (${favCount})` },
   ];
 
@@ -163,6 +174,7 @@ export default function SpacesPage() {
           <SpacesMap
             spaces={filtered}
             onCheckin={handleCheckin}
+            onCheckout={handleCheckout}
             onToggleFavorite={handleToggleFavorite}
           />
         </div>
@@ -235,13 +247,22 @@ export default function SpacesPage() {
                   )}
                 </div>
 
-                {/* Check-in button */}
-                <button
-                  onClick={() => handleCheckin(space.id)}
-                  className="mt-3 w-full rounded-md border border-border py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-                >
-                  I'm Here 📍
-                </button>
+                {/* Check-in / Check-out buttons */}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => handleCheckin(space.id)}
+                    className="flex-1 rounded-md bg-purple-600 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
+                  >
+                    I'm Here 📍
+                  </button>
+                  <button
+                    onClick={() => handleCheckout(space.id)}
+                    disabled={space.checkins === 0}
+                    className="flex-1 rounded-md border border-border py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    I'm Out 👋
+                  </button>
+                </div>
               </div>
             ))}
 

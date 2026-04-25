@@ -14,6 +14,7 @@ export type SpaceFilter =
   | "group"
   | "zoom"
   | "outdoor"
+  | "hidden_gems"
   | "favorites";
 
 export interface StudySpace {
