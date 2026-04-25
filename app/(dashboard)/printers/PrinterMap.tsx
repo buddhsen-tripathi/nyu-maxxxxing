@@ -3,18 +3,9 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import MarkerClusterGroup from "react-leaflet-cluster";
-<<<<<<< Updated upstream
-import type { Printer, PrinterStatus } from "./types";
-
-// ─── Helpers (also exported for use in page.tsx) ─────────────────────────────
-=======
-import { AlertTriangle } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Printer, PrinterStatus } from "./types";
-
 import { isStale, getRelativeTime } from "./utils";
->>>>>>> Stashed changes
 
 // ─── Theme-aware tiles ──────────────────────────────────────────────────────
 
@@ -102,7 +93,7 @@ interface Props {
 
 // Center chosen to show both the Brooklyn Tandon campus and WSQ Manhattan campus
 const MAP_CENTER: [number, number] = [40.718, -73.993];
-const MAP_ZOOM = 13;
+const MAP_ZOOM = 14;
 
 export default function PrinterMap({ printers, onReportStatus }: Props) {
   const theme = useTheme();
@@ -115,37 +106,30 @@ export default function PrinterMap({ printers, onReportStatus }: Props) {
       scrollWheelZoom
       className="h-full w-full rounded-xl"
     >
-<<<<<<< Updated upstream
-      {/* OpenStreetMap — no API key needed */}
-=======
->>>>>>> Stashed changes
       <TileLayer
         key={theme}
         attribution={tile.attribution}
         url={tile.url}
       />
 
-      {/* Auto-cluster nearby flags when zoomed out */}
-      <MarkerClusterGroup chunkedLoading>
-        {printers.map((printer) => {
-          const stale = isStale(printer.last_updated);
-          return (
-            <Marker
-              key={printer.id}
-              position={[printer.latitude, printer.longitude]}
-              icon={makeFlagIcon(printer.status, stale)}
-            >
-              <Popup minWidth={210} maxWidth={250}>
-                <PopupCard
-                  printer={printer}
-                  stale={stale}
-                  onReport={() => onReportStatus(printer.id)}
-                />
-              </Popup>
-            </Marker>
-          );
-        })}
-      </MarkerClusterGroup>
+      {printers.map((printer) => {
+        const stale = isStale(printer.last_updated);
+        return (
+          <Marker
+            key={printer.id}
+            position={[printer.latitude, printer.longitude]}
+            icon={makeFlagIcon(printer.status, stale)}
+          >
+            <Popup minWidth={210} maxWidth={250}>
+              <PopupCard
+                printer={printer}
+                stale={stale}
+                onReport={() => onReportStatus(printer.id)}
+              />
+            </Popup>
+          </Marker>
+        );
+      })}
     </MapContainer>
   );
 }
